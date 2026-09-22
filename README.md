@@ -1,59 +1,62 @@
-# OpenConnect GUI
+# OpenConnect GUI (Multi-Profile & Split-DNS Fork)
 
-This is the development space of OpenConnect VPN graphical client (GUI).
-See the [OpenConnect VPN GUI web site](https://gui.openconnect-vpn.net/)
-for detailed description, screen shots and other related projects.
+This project is an enhanced fork of the official [OpenConnect GUI](https://gui.openconnect-vpn.net/) client, designed to provide concurrent multi-VPN connections, modern macOS Split-DNS management, and seamless credential persistence.
 
+---
 
-## Goals of this client
+## Key Features in this Fork
 
-The goal is to have a simple / minimalistic interface to access
-enterprise VPN services. Non technical audience is the focus; anyone
-should be able to use it.
+### 1. Concurrent Multi-Profile VPN Connections
+- **Simultaneous Connections:** Connect to and manage multiple enterprise VPN profiles at the same time without disconnecting existing sessions.
+- **Per-Profile State & Statistics:** Live status indicators (🟢 Connected, 🟡 Connecting, ⚪ Disconnected), dynamic bandwidth metering (download/upload speed, byte counters), and isolated connect/disconnect controls per profile.
+- **Tagged Activity Logs:** Progress and diagnostic logs are automatically prefixed with the active profile name (e.g., `[Office] CSTP connected...`), keeping logs clean and readable.
+- **Multi-Window Support:** Open multiple profile windows concurrently via `File -> New Window` (`Cmd+N` / `Ctrl+N`).
 
-For contributions we follow:
-https://developer.apple.com/design/human-interface-guidelines
-where it applies.
+### 2. Modern macOS Split-DNS & Wi-Fi Protection
+- **Wi-Fi DNS Preservation:** Prevents VPN connections from overwriting the physical Wi-Fi/Ethernet interface's DHCP DNS servers via legacy `networksetup` overrides.
+- **Dynamic SupplementalMatchDomains:** Leverages macOS native `scutil` `SupplementalMatchDomains` per `utun` interface. Queries matching the VPN's domains are routed to the VPN DNS, while local Wi-Fi and general internet queries remain untouched.
+- **Guaranteed Cleanup:** Automatic removal of `scutil` resolver dictionaries upon profile disconnection and startup sweeping of any orphaned tunnel resolvers from unexpected system restarts.
 
-### Main tasks
+### 3. Customizable Split-DNS Domains per Profile
+- **GUI Configuration:** Directly define comma- or space-separated match domains (e.g., `company.com, company.com.tr`) under **Edit Profile -> Split DNS Domains**.
+- Any traffic and queries to `*.company.com` automatically resolve through that profile's internal DNS servers.
 
-These tasks are a click away:
+### 4. Password Saving & Management
+- **Profile Password Storage:** Easily set or update passwords directly in the **Edit Profile** dialog, with a toggleable Show/Hide button.
+- **Encrypted Persistence:** Passwords are encrypted locally (`CryptData`) when the "Save password" checkbox is enabled.
+- **Auto-Remember on Connect:** Passwords entered during the initial connection prompt are remembered automatically for future one-click logins.
 
- - Connecting to a new server
- - Connecting to an existing server
- - Disconnecting
- - View log
-
-### Security
-
-As non-technical audience is the focus of this client it is imperative
-that security decisions are not delegated to the user unless absolutely
-necessary.
-
-#### Server certificate validation
-
-Historically the SSL VPN servers openconnect works with, had certificates with
-incorrect hostnames in them, and were not in the Internet PKI. For that the
-way openconnect gui works is
- 1. Try Internet PKI validation - if successful server is validated
- 2. Fallback to SSH-type authentication where the server public key must remain
-    unchanged.
-
+---
 
 ## Supported Platforms
+- macOS 12.0 and newer (Apple Silicon ARM64 & Intel x86_64)
 - Microsoft Windows 10 and newer
-- macOS 10.12 and newer
 
-## Development info
-- [Compilation](docs/dev.md)
-- [Development with QtCreator](docs/dev_QtCreator.md)
+---
 
-## Other
-- [Creating release package](docs/release.md)
-- [OpenConnect library compilation and dependencies](docs/openconnect.md)
-- [Web page maintenance](https://gitlab.com/openconnect/openconnect-gui-web)
-- [Snapshot builds](docs/snapshots.md)
-- [AppVeyor CI builds](https://ci.appveyor.com/project/nmav/openconnect-gui/history)
+## Building from Source (macOS)
+
+### Prerequisites (via Homebrew)
+```bash
+brew install qt@6 openconnect gnutls spdlog fmt cmake
+```
+
+### Build & Run
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
+cmake --build build --config Release
+
+# Run with required network privileges:
+sudo ./build/bin/OpenConnect-GUI.app/Contents/MacOS/OpenConnect-GUI
+```
+
+---
+
+## Upstream Project & Documentation
+- Original Project: [OpenConnect GUI](https://gui.openconnect-vpn.net/)
+- Developer Documentation: [Compilation](docs/dev.md) | [Development with QtCreator](docs/dev_QtCreator.md)
+
+---
 
 # License
-The content of this project itself is licensed under the [GNU General Public License v2](LICENSE.txt)
+This project is licensed under the [GNU General Public License v2](LICENSE.txt).

@@ -32,6 +32,7 @@ extern "C" {
 }
 
 #include <QApplication>
+#include <QProcess>
 #if !defined(_WIN32) && !defined(PROJ_GNUTLS_DEBUG)
 #include <QMessageBox>
 #endif
@@ -140,7 +141,7 @@ int main(int argc, char* argv[])
     QtSingleApplication app(argc, argv);
     if (app.isRunning()) {
         OcSettings settings;
-        if (settings.value("Settings/singleInstanceMode", true).toBool()) {
+        if (settings.value("Settings/singleInstanceMode", false).toBool()) {
             app.sendMessage("Wake up!");
             return 0;
         }
@@ -175,6 +176,18 @@ int main(int argc, char* argv[])
     signal(SIGPIPE, SIG_IGN);
 #endif
     openconnect_init_ssl();
+
+#if defined(Q_OS_MACOS)
+    // Clean up any orphaned utun DNS resolvers from previous unclean shutdowns
+    QProcess::execute(QStringLiteral("/bin/sh"), QStringList() << QStringLiteral("-c") << QStringLiteral(
+        "for s in $(echo 'list State:/Network/Service/.*' | scutil | grep -o 'State:/Network/Service/utun[0-9]*/DNS'); do "
+        "  dev=$(echo $s | cut -d/ -f4); "
+        "  if ! ifconfig $dev >/dev/null 2>&1; then "
+        "    scutil <<-EOF\nopen\nremove State:/Network/Service/$dev/DNS\nremove State:/Network/Service/$dev/IPv4\nclose\nEOF\n"
+        "  fi; "
+        "done"
+    ));
+#endif
 
     QCommandLineParser parser;
     parser.setApplicationDescription(

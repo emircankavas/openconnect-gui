@@ -62,6 +62,7 @@ private slots:
     void on_resetWinCertSelection_clicked();
 
     void on_vpncScriptButton_clicked();
+    void on_showPasswordButton_toggled(bool checked);
 
 private:
     void load_win_certs();

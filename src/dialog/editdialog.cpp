@@ -163,6 +163,15 @@ EditDialog::EditDialog(QString server, QWidget* parent)
     }
     ui->groupnameEdit->setText(ss->get_groupname());
     ui->usernameEdit->setText(ss->get_username());
+    ui->passwordEdit->setText(ss->get_password());
+    ui->savePasswordBox->setChecked(ss->get_batch_mode() || !ss->get_password().isEmpty());
+    connect(ui->savePasswordBox, &QCheckBox::toggled, ui->batchModeBox, &QCheckBox::setChecked);
+    connect(ui->batchModeBox, &QCheckBox::toggled, ui->savePasswordBox, &QCheckBox::setChecked);
+    connect(ui->passwordEdit, &QLineEdit::textChanged, this, [this](const QString& text) {
+        if (!text.isEmpty()) {
+            ui->savePasswordBox->setChecked(true);
+        }
+    });
     ui->gatewayEdit->setText(ss->get_server_gateway());
     ui->userCertHash->setText(ss->get_client_cert_pin());
     ui->caCertHash->setText(ss->get_ca_cert_pin());
@@ -185,6 +194,7 @@ EditDialog::EditDialog(QString server, QWidget* parent)
     ui->protocolComboBox->setCurrentIndex(model->findIndex(ss->get_protocol_name()));
     ui->interfaceNameEdit->setText(ss->get_interface_name());
     ui->vpncScriptEdit->setText(ss->get_vpnc_script_filename());
+    ui->splitDnsDomainsEdit->setText(ss->get_split_dns_domains());
 
     type = loglevel_tab(ss->get_log_level());
     if (type != -1) {
@@ -268,8 +278,14 @@ void EditDialog::on_buttonBox_accepted()
     }
     ss->set_label(ui->nameEdit->text());
     ss->set_username(ui->usernameEdit->text());
+    bool savePass = ui->savePasswordBox->isChecked();
+    ss->set_batch_mode(savePass);
+    if (savePass) {
+        ss->set_password(ui->passwordEdit->text());
+    } else {
+        ss->clear_password();
+    }
     ss->set_server_gateway(ui->gatewayEdit->text());
-    ss->set_batch_mode(ui->batchModeBox->isChecked());
     ss->set_minimize(ui->minimizeBox->isChecked());
     ss->set_proxy(ui->useProxyBox->isChecked());
     ss->set_disable_udp(ui->disableUdpBox->isChecked());
@@ -288,6 +304,7 @@ void EditDialog::on_buttonBox_accepted()
     ss->set_protocol_name(ui->protocolComboBox->currentData(ROLE_PROTOCOL_NAME).toString());
     ss->set_interface_name(ui->interfaceNameEdit->text());
     ss->set_vpnc_script_filename(ui->vpncScriptEdit->text());
+    ss->set_split_dns_domains(ui->splitDnsDomainsEdit->text());
 
     type = ui->loglevelBox->currentIndex();
     if (type == -1) {
@@ -445,4 +462,10 @@ void EditDialog::on_vpncScriptButton_clicked()
         filename = QDir::toNativeSeparators(filename);
         ui->vpncScriptEdit->setText(filename);
     }
+}
+
+void EditDialog::on_showPasswordButton_toggled(bool checked)
+{
+    ui->passwordEdit->setEchoMode(checked ? QLineEdit::Normal : QLineEdit::Password);
+    ui->showPasswordButton->setText(checked ? tr("Hide") : tr("Show"));
 }

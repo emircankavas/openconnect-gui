@@ -29,6 +29,7 @@
 
 #include <QDir>
 #include <QHash>
+#include <QProcess>
 #include <QUrl>
 
 #include <cstdarg>
@@ -50,13 +51,14 @@ static void stats_vfn(void* privdata, const struct oc_stats* stats)
         dtls = QLatin1String(cipher);
     }
 
-    vpn->m->updateStats(stats, dtls);
+    vpn->m->updateStats(vpn->get_profile_name(), stats, dtls);
 }
 
 // privdata is set by the caller to be of type VpnInfo
 // Access as: VpnInfo* vpn = static_cast<VpnInfo*>(privdata);
 static void progress_vfn(void* privdata, int level, const char* fmt, ...)
 {
+    VpnInfo* vpn = static_cast<VpnInfo*>(privdata);
     char buf[512];
     size_t len;
     va_list args;
@@ -73,7 +75,12 @@ static void progress_vfn(void* privdata, int level, const char* fmt, ...)
     len = strlen(buf);
     if (buf[len - 1] == '\n')
         buf[len - 1] = 0;
-    Logger::instance().addMessage(buf);
+
+    if (vpn && !vpn->get_profile_name().isEmpty()) {
+        Logger::instance().addMessage(QString("[%1] %2").arg(vpn->get_profile_name(), QString::fromUtf8(buf)));
+    } else {
+        Logger::instance().addMessage(buf);
+    }
 }
 
 static int process_auth_form(void* privdata, struct oc_auth_form* form)
@@ -419,9 +426,21 @@ static void setup_tun_vfn(void* privdata)
     }
 #endif
 
+    const char* ifname = interface_name.isEmpty() ? nullptr : interface_name.constData();
+
+    if (!vpn->ss->get_split_dns_domains().trimmed().isEmpty()) {
+        qputenv("EXTRA_MATCH_DOMAINS", vpn->ss->get_split_dns_domains().trimmed().toUtf8());
+    } else {
+        qunsetenv("EXTRA_MATCH_DOMAINS");
+    }
+
+    if (!vpn->get_profile_name().isEmpty()) {
+        qputenv("OPENCONNECT_GUI_PROFILE_NAME", vpn->get_profile_name().toUtf8());
+    }
+
     int ret = openconnect_setup_tun_device(vpn->vpninfo,
                                            vpncScriptFullPath.constData(),
-                                           interface_name.constData());
+                                           ifname);
     if (ret != 0) {
         vpn->last_err = QObject::tr("Error setting up the TUN device");
         //FIXME: ???        return ret;
@@ -468,6 +487,7 @@ VpnInfo::VpnInfo(QString name, StoredServer* ss, MainWindow* m)
     this->last_err = "";
     this->ss = ss;
     this->m = m;
+    this->m_profile_name = ss ? ss->get_label() : QString();
     authgroup_set = 0;
     password_set = 0;
     form_attempt = 0;
@@ -488,6 +508,16 @@ VpnInfo::VpnInfo(QString name, StoredServer* ss, MainWindow* m)
 
 VpnInfo::~VpnInfo()
 {
+#if defined(Q_OS_MACOS)
+    if (vpninfo != nullptr) {
+        const char* ifname = openconnect_get_ifname(vpninfo);
+        if (ifname != nullptr && strlen(ifname) > 0) {
+            QString cmd = QStringLiteral("scutil <<-EOF\nopen\nremove State:/Network/Service/%1/IPv4\nremove State:/Network/Service/%1/DNS\nclose\nEOF\n").arg(QString::fromUtf8(ifname));
+            QProcess::execute(QStringLiteral("/bin/sh"), QStringList() << QStringLiteral("-c") << cmd);
+        }
+    }
+#endif
+
     if (vpninfo != nullptr) {
         openconnect_vpninfo_free(vpninfo);
     }
@@ -664,8 +694,11 @@ bool VpnInfo::get_minimize() const
 
 void VpnInfo::logVpncScriptOutput()
 {
-    /* now read %temp%\\vpnc.log and post it to our log */
+    /* now read %temp%\\vpnc.log and post it to our log (Windows vpnc-script.js only) */
     QString tfile = QDir::tempPath() + QLatin1String("/vpnc.log");
+    if (!QFile::exists(tfile)) {
+        return;
+    }
     QFile file(tfile);
     if (file.open(QIODevice::ReadOnly) == true) {
         QTextStream in(&file);
@@ -760,4 +793,14 @@ bool VpnInfo::is_password_form_option(struct oc_auth_form* form, struct oc_form_
     }
 
     return ret;
+}
+
+QString VpnInfo::get_profile_name() const
+{
+    return m_profile_name;
+}
+
+void VpnInfo::set_profile_name(const QString& name)
+{
+    m_profile_name = name;
 }

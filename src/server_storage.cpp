@@ -28,7 +28,7 @@ StoredServer::~StoredServer(void)
 }
 
 StoredServer::StoredServer()
-    : m_batch_mode{ false }
+    : m_batch_mode{ true }
     , m_minimize_on_connect{ false }
     , m_proxy{ false }
     , m_disable_udp{ false }
@@ -178,7 +178,7 @@ int StoredServer::load(QString& name)
     }
 
     this->m_username = settings.value("username").toString();
-    this->m_batch_mode = settings.value("batch", false).toBool();
+    this->m_batch_mode = settings.value("batch", true).toBool();
     this->m_proxy = settings.value("proxy", false).toBool();
     this->m_disable_udp = settings.value("disable-udp", false).toBool();
     this->m_minimize_on_connect = settings.value("minimize-on-connect", false).toBool();
@@ -187,7 +187,7 @@ int StoredServer::load(QString& name)
 
     bool ret = false;
 
-    if (this->m_batch_mode == true) {
+    if (this->m_batch_mode == true || settings.contains("password")) {
         this->m_groupname = settings.value("groupname").toString();
         ret = CryptData::decode(this->m_server_gateway,
             settings.value("password").toByteArray(),
@@ -249,6 +249,7 @@ int StoredServer::load(QString& name)
     m_interface_name.truncate(OC_IFNAME_MAX_LENGTH);
 #endif
     m_vpnc_script_filename = settings.value("vpnc-script").toString();
+    m_split_dns_domains = settings.value("split-dns-domains").toString();
 
     m_log_level = settings.value("log-level", -1).toInt();
 
@@ -269,10 +270,12 @@ int StoredServer::save()
     settings.setValue("dtls_attempt_period", this->m_dtls_attempt_period);
     settings.setValue("username", this->m_username);
 
-    if (this->m_batch_mode == true) {
+    if (this->m_batch_mode == true && this->m_password.isEmpty() == false) {
         settings.setValue("password",
             CryptData::encode(this->m_server_gateway, this->m_password));
         settings.setValue("groupname", this->m_groupname);
+    } else {
+        settings.remove("password");
     }
 
     QByteArray data;
@@ -297,6 +300,7 @@ int StoredServer::save()
 
     settings.setValue("interface-name", m_interface_name);
     settings.setValue("vpnc-script", m_vpnc_script_filename);
+    settings.setValue("split-dns-domains", m_split_dns_domains);
     if (m_log_level == -1)
         settings.remove("log-level");
     else
@@ -499,6 +503,16 @@ const QString& StoredServer::get_vpnc_script_filename() const
 void StoredServer::set_vpnc_script_filename(const QString& vpnc_script_filename)
 {
     this->m_vpnc_script_filename = vpnc_script_filename;
+}
+
+const QString& StoredServer::get_split_dns_domains() const
+{
+    return this->m_split_dns_domains;
+}
+
+void StoredServer::set_split_dns_domains(const QString& domains)
+{
+    this->m_split_dns_domains = domains;
 }
 
 int StoredServer::get_log_level()

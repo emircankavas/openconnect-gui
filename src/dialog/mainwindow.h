@@ -57,6 +57,25 @@ enum status_t {
     STATUS_CONNECTED
 };
 
+#include <memory>
+#include <QMap>
+
+struct VpnConnection {
+    QString profileName;
+    class VpnInfo* vpninfo = nullptr;
+    SOCKET cmd_fd = INVALID_SOCKET;
+    int status = STATUS_DISCONNECTED;
+    QString dns;
+    QString ip;
+    QString ip6;
+    QString cstp_cipher;
+    QString dtls_cipher;
+    QString tx_bytes;
+    QString rx_bytes;
+    bool minimize_on_connect = false;
+    QFuture<void> future;
+};
+
 class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
@@ -64,6 +83,7 @@ public:
     ~MainWindow();
 
     void updateStats(const struct oc_stats* stats, QString dtls);
+    void updateStats(const QString& profileName, const struct oc_stats* stats, QString dtls);
     void reload_settings();
 
     void vpn_status_changed(int connected);
@@ -73,13 +93,24 @@ public:
         QString& ip6,
         QString& cstp_cipher,
         QString& dtls_cipher);
+    void vpn_status_changed(const QString& profileName, int connected);
+    void vpn_status_changed(const QString& profileName,
+        int connected,
+        QString& dns,
+        QString& ip,
+        QString& ip6,
+        QString& cstp_cipher,
+        QString& dtls_cipher);
 
     int get_log_level();
+    void disconnectProfile(const QString& profileName);
 
 public slots:
     void iconActivated(QSystemTrayIcon::ActivationReason reason);
     void statsChanged(QString, QString, QString);
+    void statsChanged(QString profileName, QString tx, QString rx, QString dtls);
     void changeStatus(int);
+    void changeStatus(QString profileName, int);
 
     void blink_ui(void);
 
@@ -87,6 +118,8 @@ public slots:
 
     void on_connectClicked();
     void on_disconnectClicked();
+    void on_serverList_currentIndexChanged(int index);
+    void on_actionNewWindow_triggered();
 
     void closeEvent(QCloseEvent* event) override;
 
@@ -104,7 +137,9 @@ public slots:
 
 signals:
     void stats_changed_sig(QString, QString, QString);
+    void stats_changed_sig(QString profileName, QString tx, QString rx, QString dtls);
     void vpn_status_changed_sig(int);
+    void vpn_status_changed_sig(QString profileName, int);
     void timeout(void);
     void readyToShutdown();
     void version_download_completed_sig();
@@ -123,6 +158,13 @@ private:
 
     void readSettings();
     void writeSettings();
+
+    std::shared_ptr<VpnConnection> getConnection(const QString& profileName);
+    void updateUiForProfile(const QString& profileName);
+    void updateServerListItem(const QString& profileName, int status);
+    void updateTrayIconState();
+
+    QMap<QString, std::shared_ptr<VpnConnection>> m_connections;
 
     /* we keep the fd instead of a pointer to vpninfo to avoid
      * any multithread issues */

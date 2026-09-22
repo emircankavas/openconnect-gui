@@ -63,13 +63,19 @@ if(MINGW)
     )
 endif()
 if(APPLE)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Resources/vpnc-script")
+        set(VPNC_SCRIPT_TO_BUNDLE "${CMAKE_CURRENT_SOURCE_DIR}/Resources/vpnc-script")
+    else()
+        set(VPNC_SCRIPT_TO_BUNDLE "${OPENCONNECT_VPNC_SCRIPT}")
+    endif()
+
     list(APPEND ${PROJECT_NAME}_RESOURCES
         Resources/mono_lock.icns
-        ${OPENCONNECT_VPNC_SCRIPT}
+        ${VPNC_SCRIPT_TO_BUNDLE}
     )
     set_source_files_properties(
         Resources/mono_lock.icns
-        ${OPENCONNECT_VPNC_SCRIPT}
+        ${VPNC_SCRIPT_TO_BUNDLE}
             PROPERTIES MACOSX_PACKAGE_LOCATION Resources
     )
 endif()

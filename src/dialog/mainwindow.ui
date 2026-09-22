@@ -325,6 +325,8 @@
      <addaction name="actionEditSelectedProfile"/>
      <addaction name="actionRemoveSelectedProfile"/>
     </widget>
+    <addaction name="actionNewWindow"/>
+    <addaction name="separator"/>
     <addaction name="menuProfiles"/>
     <addaction name="separator"/>
     <addaction name="actionQuit"/>
@@ -509,10 +511,18 @@
     <bool>true</bool>
    </property>
    <property name="enabled">
-    <bool>false</bool>
+    <bool>true</bool>
    </property>
    <property name="text">
     <string>&amp;Single instance mode</string>
+   </property>
+  </action>
+  <action name="actionNewWindow">
+   <property name="text">
+    <string>&amp;New Window</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+N</string>
    </property>
   </action>
   <action name="actionNewProfileAdvanced">

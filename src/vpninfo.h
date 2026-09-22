@@ -42,6 +42,9 @@ public:
     bool is_username_form_option(struct oc_auth_form* form, struct oc_form_opt* opt);
     bool is_password_form_option(struct oc_auth_form* form, struct oc_form_opt* opt);
 
+    QString get_profile_name() const;
+    void set_profile_name(const QString& name);
+
     QString last_err;
     QUrl mUrl;
     MainWindow* m;
@@ -57,4 +60,5 @@ public:
 
 private:
     SOCKET cmd_fd;
+    QString m_profile_name;
 };

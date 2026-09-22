@@ -111,13 +111,12 @@ MainWindow::MainWindow(QWidget* parent, bool useTray, const QString profileName)
 
     connect(ui->actionQuit, &QAction::triggered,
         [=]() {
-            if (m_trayIcon && m_disconnectAction->isEnabled()) {
-                connect(this, &MainWindow::readyToShutdown,
-                    qApp, &QApplication::quit);
-                on_disconnectClicked();
-            } else {
-                qApp->quit();
+            for (auto& conn : m_connections) {
+                if (conn && conn->cmd_fd != INVALID_SOCKET) {
+                    disconnectProfile(conn->profileName);
+                }
             }
+            qApp->quit();
         });
 
     connect(blink_timer, &QTimer::timeout,
@@ -129,14 +128,18 @@ MainWindow::MainWindow(QWidget* parent, bool useTray, const QString profileName)
     connect(ui->serverList->lineEdit(), &QLineEdit::returnPressed,
         this, &MainWindow::on_connectClicked,
         Qt::QueuedConnection);
-    connect(this, &MainWindow::vpn_status_changed_sig,
-        this, &MainWindow::changeStatus,
+    connect(this, QOverload<QString, int>::of(&MainWindow::vpn_status_changed_sig),
+        this, QOverload<QString, int>::of(&MainWindow::changeStatus),
         Qt::QueuedConnection);
+    connect(this, QOverload<QString, QString, QString, QString>::of(&MainWindow::stats_changed_sig),
+        this, QOverload<QString, QString, QString, QString>::of(&MainWindow::statsChanged),
+        Qt::QueuedConnection);
+    connect(ui->actionNewWindow, &QAction::triggered,
+        this, &MainWindow::on_actionNewWindow_triggered);
+    connect(ui->serverList, QOverload<int>::of(&QComboBox::currentIndexChanged),
+        this, &MainWindow::on_serverList_currentIndexChanged);
     connect(ui->connectionButton, &QPushButton::clicked,
         this, &MainWindow::on_connectClicked,
-        Qt::QueuedConnection);
-    connect(this, &MainWindow::stats_changed_sig,
-        this, &MainWindow::statsChanged,
         Qt::QueuedConnection);
 
     ui->iconLabel->setPixmap(OFF_ICON);
@@ -354,12 +357,12 @@ MainWindow::MainWindow(QWidget* parent, bool useTray, const QString profileName)
     m_appWindowStateMachine->start();
 }
 
-static void term_thread(MainWindow* m, SOCKET* fd)
+static void term_thread(MainWindow* m, const QString& profileName, SOCKET* fd)
 {
     char cmd = OC_CMD_CANCEL;
 
     if (*fd != INVALID_SOCKET) {
-        m->vpn_status_changed(STATUS_DISCONNECTING);
+        m->vpn_status_changed(profileName, STATUS_DISCONNECTING);
         int ret = pipe_write(*fd, &cmd, 1);
         if (ret < 0) {
             Logger::instance().addMessage(QObject::tr("term_thread: IPC error: %1").arg(net_errno));
@@ -367,7 +370,7 @@ static void term_thread(MainWindow* m, SOCKET* fd)
         *fd = INVALID_SOCKET;
         ms_sleep(200);
     } else {
-        m->vpn_status_changed(STATUS_DISCONNECTED);
+        m->vpn_status_changed(profileName, STATUS_DISCONNECTED);
     }
 }
 
@@ -378,12 +381,18 @@ MainWindow::~MainWindow()
         timer->stop();
     }
 
-    if (this->futureWatcher.isRunning() == true) {
-        term_thread(this, &this->cmd_fd);
+    bool anyActive = false;
+    for (auto& conn : m_connections) {
+        if (conn && conn->cmd_fd != INVALID_SOCKET) {
+            anyActive = true;
+            term_thread(this, conn->profileName, &conn->cmd_fd);
+        }
     }
-    while (this->futureWatcher.isRunning() == true && counter > 0) {
-        ms_sleep(200);
-        counter--;
+    if (anyActive) {
+        while (counter > 0) {
+            ms_sleep(200);
+            counter--;
+        }
     }
 
     writeSettings();
@@ -456,23 +465,35 @@ void MainWindow::gotLatestVersion(QNetworkReply *reply)
 
 void MainWindow::vpn_status_changed(int connected)
 {
-    emit vpn_status_changed_sig(connected);
+    vpn_status_changed(ui->serverList->currentText(), connected);
 }
 
 void MainWindow::vpn_status_changed(int connected, QString& dns, QString& ip, QString& ip6, QString& cstp_cipher, QString& dtls_cipher)
 {
-    this->dns = dns;
-    this->ip = ip;
-    this->ip6 = ip6;
-    this->dtls_cipher = dtls_cipher;
-    this->cstp_cipher = cstp_cipher;
+    vpn_status_changed(ui->serverList->currentText(), connected, dns, ip, ip6, cstp_cipher, dtls_cipher);
+}
 
-    emit vpn_status_changed_sig(connected);
+void MainWindow::vpn_status_changed(const QString& profileName, int connected)
+{
+    emit vpn_status_changed_sig(profileName, connected);
+}
+
+void MainWindow::vpn_status_changed(const QString& profileName, int connected, QString& dns, QString& ip, QString& ip6, QString& cstp_cipher, QString& dtls_cipher)
+{
+    auto conn = getConnection(profileName);
+    if (conn) {
+        conn->dns = dns;
+        conn->ip = ip;
+        conn->ip6 = ip6;
+        conn->cstp_cipher = cstp_cipher;
+        conn->dtls_cipher = dtls_cipher;
+    }
+    emit vpn_status_changed_sig(profileName, connected);
 }
 
 QString MainWindow::normalize_byte_size(uint64_t bytes)
 {
-    const unsigned unit = 1024; // TODO: add support for SI units? (optional)
+    const unsigned unit = 1024;
     if (bytes < unit) {
         return QString("%1 B").arg(QString::number(bytes));
     }
@@ -483,22 +504,43 @@ QString MainWindow::normalize_byte_size(uint64_t bytes)
 
 void MainWindow::statsChanged(QString tx, QString rx, QString dtls)
 {
-    ui->downloadLabel->setText(rx);
-    ui->uploadLabel->setText(tx);
-    ui->cipherDTLSLabel->setText(dtls);
+    statsChanged(ui->serverList->currentText(), tx, rx, dtls);
+}
+
+void MainWindow::statsChanged(QString profileName, QString tx, QString rx, QString dtls)
+{
+    auto conn = getConnection(profileName);
+    if (conn) {
+        conn->tx_bytes = tx;
+        conn->rx_bytes = rx;
+        conn->dtls_cipher = dtls;
+    }
+
+    if (ui->serverList->currentText() == profileName) {
+        ui->downloadLabel->setText(rx);
+        ui->uploadLabel->setText(tx);
+        ui->cipherDTLSLabel->setText(dtls);
+    }
 }
 
 void MainWindow::updateStats(const struct oc_stats* stats, QString dtls)
 {
+    updateStats(ui->serverList->currentText(), stats, dtls);
+}
+
+void MainWindow::updateStats(const QString& profileName, const struct oc_stats* stats, QString dtls)
+{
     emit stats_changed_sig(
+        profileName,
         normalize_byte_size(stats->tx_bytes),
         normalize_byte_size(stats->rx_bytes),
         dtls);
 }
 
-#define PREFIX "server:" // LCA: remove this...
+#define PREFIX "server:"
 void MainWindow::reload_settings()
 {
+    ui->serverList->blockSignals(true);
     ui->serverList->clear();
     if (m_trayIcon) {
         m_trayIconMenuConnections->clear();
@@ -508,9 +550,21 @@ void MainWindow::reload_settings()
     for (const auto& key : settings.allKeys()) {
         if (key.startsWith(PREFIX) && key.endsWith("/server")) {
             QString str{ key };
-            str.remove(0, sizeof(PREFIX) - 1); /* remove prefix */
-            str.remove(str.size() - 7, 7); /* remove /server suffix */
-            ui->serverList->addItem(str);
+            str.remove(0, sizeof(PREFIX) - 1);
+            str.remove(str.size() - 7, 7);
+
+            auto conn = getConnection(str);
+            int status = conn ? conn->status : STATUS_DISCONNECTED;
+            QIcon icon;
+            if (status == STATUS_CONNECTED) {
+                icon = QIcon(":/images/network-connected.png");
+            } else if (status == STATUS_CONNECTING) {
+                icon = QIcon(":/images/process-working.png");
+            } else {
+                icon = QIcon(":/images/network-disconnected.png");
+            }
+
+            ui->serverList->addItem(icon, str);
 
             if (m_trayIcon) {
                 QAction* act = m_trayIconMenuConnections->addAction(str);
@@ -524,157 +578,262 @@ void MainWindow::reload_settings()
             }
         }
     }
+    ui->serverList->blockSignals(false);
+
+    updateUiForProfile(ui->serverList->currentText());
 }
 
 void MainWindow::blink_ui()
 {
     static unsigned t = 1;
 
-    if (t % 2 == 0) {
-        ui->iconLabel->setPixmap(CONNECTING_ICON);
-    } else {
-        ui->iconLabel->setPixmap(CONNECTING_ICON2);
+    auto conn = getConnection(ui->serverList->currentText());
+    if (conn && conn->status == STATUS_CONNECTING) {
+        if (t % 2 == 0) {
+            ui->iconLabel->setPixmap(CONNECTING_ICON);
+        } else {
+            ui->iconLabel->setPixmap(CONNECTING_ICON2);
+        }
     }
     ++t;
 }
 
-void MainWindow::changeStatus(int val)
+std::shared_ptr<VpnConnection> MainWindow::getConnection(const QString& profileName)
 {
-    if (val == STATUS_CONNECTED) {
+    if (m_connections.contains(profileName)) {
+        return m_connections.value(profileName);
+    }
+    return nullptr;
+}
 
-        blink_timer->stop();
+void MainWindow::updateServerListItem(const QString& profileName, int status)
+{
+    int idx = ui->serverList->findText(profileName);
+    if (idx != -1) {
+        QIcon icon;
+        if (status == STATUS_CONNECTED) {
+            icon = QIcon(":/images/network-connected.png");
+        } else if (status == STATUS_CONNECTING) {
+            icon = QIcon(":/images/process-working.png");
+        } else {
+            icon = QIcon(":/images/network-disconnected.png");
+        }
+        ui->serverList->setItemIcon(idx, icon);
+    }
+}
 
-        ui->serverList->setEnabled(false);
+void MainWindow::updateTrayIconState()
+{
+    if (!m_trayIcon) return;
 
-        if (m_trayIcon) {
-            m_trayIconMenuConnections->setEnabled(false);
+    bool anyConnected = false;
+    bool anyConnecting = false;
+    QStringList connectedProfiles;
+
+    for (const auto& conn : m_connections) {
+        if (conn->status == STATUS_CONNECTED) {
+            anyConnected = true;
+            connectedProfiles.append(conn->profileName);
+        } else if (conn->status == STATUS_CONNECTING) {
+            anyConnecting = true;
+        }
+    }
+
+    QFileSelector selector;
+    if (anyConnected) {
+        QIcon icon(selector.select(QStringLiteral(":/images/network-connected.png")));
+        icon.setIsMask(true);
+        m_trayIcon->setIcon(icon);
+        m_trayIcon->setToolTip(tr("Connected: %1").arg(connectedProfiles.join(", ")));
+        if (m_disconnectAction) {
             m_disconnectAction->setEnabled(true);
         }
+    } else if (anyConnecting) {
+        QIcon icon(selector.select(QStringLiteral(":/images/network-disconnected.png")));
+        icon.setIsMask(true);
+        m_trayIcon->setIcon(icon);
+        m_trayIcon->setToolTip(tr("Connecting..."));
+        if (m_disconnectAction) {
+            m_disconnectAction->setEnabled(true);
+        }
+    } else {
+        QIcon icon(selector.select(QStringLiteral(":/images/network-disconnected.png")));
+        icon.setIsMask(true);
+        m_trayIcon->setIcon(icon);
+        m_trayIcon->setToolTip(tr("Disconnected"));
+        if (m_disconnectAction) {
+            m_disconnectAction->setEnabled(false);
+        }
+    }
+}
 
+void MainWindow::updateUiForProfile(const QString& profileName)
+{
+    auto conn = getConnection(profileName);
+    int status = conn ? conn->status : STATUS_DISCONNECTED;
+
+    disconnect(ui->connectionButton, &QPushButton::clicked, this, &MainWindow::on_connectClicked);
+    disconnect(ui->connectionButton, &QPushButton::clicked, this, &MainWindow::on_disconnectClicked);
+
+    if (status == STATUS_CONNECTED) {
         ui->iconLabel->setPixmap(ON_ICON);
+        ui->connectionButton->setEnabled(true);
         ui->connectionButton->setIcon(QIcon(":/images/process-stop.png"));
         ui->connectionButton->setText(tr("Disconnect"));
+        connect(ui->connectionButton, &QPushButton::clicked, this, &MainWindow::on_disconnectClicked, Qt::QueuedConnection);
 
-        QFileSelector selector;
-        if (m_trayIcon) {
-            QIcon icon(selector.select(QStringLiteral(":/images/network-connected.png")));
-            icon.setIsMask(true);
-            m_trayIcon->setIcon(icon);
-        }
+        ui->ipV4Label->setText(conn ? conn->ip : QString());
+        ui->ipV6Label->setText(conn ? conn->ip6 : QString());
+        ui->dnsLabel->setText(conn ? conn->dns : QString());
+        ui->cipherCSTPLabel->setText(conn ? conn->cstp_cipher : QString());
+        ui->cipherDTLSLabel->setText(conn ? conn->dtls_cipher : QString());
+        ui->uploadLabel->setText(conn ? conn->tx_bytes : QString());
+        ui->downloadLabel->setText(conn ? conn->rx_bytes : QString());
 
-        this->ui->ipV4Label->setText(ip);
-        this->ui->ipV6Label->setText(ip6);
-        this->ui->dnsLabel->setText(dns);
-        this->ui->cipherCSTPLabel->setText(cstp_cipher);
-        this->ui->cipherDTLSLabel->setText(dtls_cipher);
-
-        timer->start(UPDATE_TIMER);
-
-        if (this->minimize_on_connect) {
-            if (m_trayIcon) {
-                hide();
-                m_trayIcon->showMessage(QLatin1String("Connected"), QLatin1String("You are connected to ") + ui->serverList->currentText(),
-                    QSystemTrayIcon::Information,
-                    10000);
-            } else {
-                this->setWindowState(Qt::WindowMinimized);
-            }
-        }
-
-        if (m_trayIcon) {
-            m_trayIcon->setToolTip(QLatin1String("Connected to ") + ui->serverList->currentText());
-        }
-    } else if (val == STATUS_CONNECTING) {
-
-        if (m_trayIcon) {
-            QFileSelector selector;
-            QIcon icon(selector.select(QStringLiteral(":/images/network-disconnected.png")));
-            icon.setIsMask(true);
-            m_trayIcon->setIcon(icon);
-            m_trayIcon->setToolTip(QLatin1String("Connecting to ") + ui->serverList->currentText());
-        }
-
-        ui->serverList->setEnabled(false);
-
-        if (m_trayIcon) {
-            m_trayIconMenuConnections->setEnabled(false);
-            m_disconnectAction->setEnabled(true);
-        }
-
+        ui->actionEditSelectedProfile->setEnabled(false);
+        ui->actionRemoveSelectedProfile->setEnabled(false);
+    } else if (status == STATUS_CONNECTING) {
         ui->iconLabel->setPixmap(CONNECTING_ICON);
+        ui->connectionButton->setEnabled(true);
         ui->connectionButton->setIcon(QIcon(":/images/process-stop.png"));
         ui->connectionButton->setText(tr("Cancel"));
-        blink_timer->start(1500);
-
-        disconnect(ui->connectionButton, &QPushButton::clicked,
-            this, &MainWindow::on_connectClicked);
-        connect(ui->connectionButton, &QPushButton::clicked,
-            this, &MainWindow::on_disconnectClicked,
-            Qt::QueuedConnection);
-    } else if (val == STATUS_DISCONNECTED) {
-        blink_timer->stop();
-        if (this->timer->isActive()) {
-            timer->stop();
-        }
-        cmd_fd = INVALID_SOCKET;
+        connect(ui->connectionButton, &QPushButton::clicked, this, &MainWindow::on_disconnectClicked, Qt::QueuedConnection);
 
         ui->ipV4Label->clear();
         ui->ipV6Label->clear();
         ui->dnsLabel->clear();
-        ui->uploadLabel->clear();
-        ui->downloadLabel->clear();
         ui->cipherCSTPLabel->clear();
         ui->cipherDTLSLabel->clear();
-        Logger::instance().addMessage(QObject::tr("Disconnected"));
+        ui->uploadLabel->clear();
+        ui->downloadLabel->clear();
 
-        ui->serverList->setEnabled(true);
+        ui->actionEditSelectedProfile->setEnabled(false);
+        ui->actionRemoveSelectedProfile->setEnabled(false);
+    } else if (status == STATUS_DISCONNECTING) {
+        ui->iconLabel->setPixmap(CONNECTING_ICON);
+        ui->connectionButton->setEnabled(false);
+        ui->connectionButton->setIcon(QIcon(":/images/process-stop.png"));
+        ui->connectionButton->setText(tr("Disconnecting..."));
 
-        if (m_trayIcon) {
-            m_trayIconMenuConnections->setEnabled(true);
-            m_disconnectAction->setEnabled(false);
-        }
-
+        ui->actionEditSelectedProfile->setEnabled(false);
+        ui->actionRemoveSelectedProfile->setEnabled(false);
+    } else { // STATUS_DISCONNECTED
         ui->iconLabel->setPixmap(OFF_ICON);
         ui->connectionButton->setEnabled(true);
         ui->connectionButton->setIcon(QIcon(":/images/network-wired.png"));
         ui->connectionButton->setText(tr("Connect"));
+        connect(ui->connectionButton, &QPushButton::clicked, this, &MainWindow::on_connectClicked, Qt::QueuedConnection);
 
-        if (m_trayIcon) {
-            QFileSelector selector;
-            QIcon icon(selector.select(QStringLiteral(":/images/network-disconnected.png")));
-            icon.setIsMask(true);
-            m_trayIcon->setIcon(icon);
+        ui->ipV4Label->clear();
+        ui->ipV6Label->clear();
+        ui->dnsLabel->clear();
+        ui->cipherCSTPLabel->clear();
+        ui->cipherDTLSLabel->clear();
+        ui->uploadLabel->clear();
+        ui->downloadLabel->clear();
 
-            if (this->isHidden() == true)
-                m_trayIcon->showMessage(QLatin1String("Disconnected"), QLatin1String("You were disconnected from the VPN"),
-                    QSystemTrayIcon::Warning,
-                    10000);
-
-            m_trayIcon->setToolTip(QLatin1String("Disconnected"));
-        }
-        disconnect(ui->connectionButton, &QPushButton::clicked,
-            this, &MainWindow::on_disconnectClicked);
-        connect(ui->connectionButton, &QPushButton::clicked,
-            this, &MainWindow::on_connectClicked,
-            Qt::QueuedConnection);
-
-        emit readyToShutdown();
-    } else if (val == STATUS_DISCONNECTING) {
-        ui->iconLabel->setPixmap(CONNECTING_ICON);
-        ui->connectionButton->setIcon(QIcon(":/images/process-stop.png"));
-        ui->connectionButton->setEnabled(false);
-        blink_timer->start(1500);
-
-        if (m_trayIcon)
-            m_trayIcon->setToolTip(QLatin1String("Disconnecting from ") + ui->serverList->currentText());
-    } else {
-        qDebug() << "TODO: was is das?";
+        ui->actionEditSelectedProfile->setEnabled(true);
+        ui->actionRemoveSelectedProfile->setEnabled(true);
     }
 }
 
-static void main_loop(VpnInfo* vpninfo, MainWindow* m)
+void MainWindow::on_serverList_currentIndexChanged(int index)
 {
-    m->vpn_status_changed(STATUS_CONNECTING);
+    Q_UNUSED(index);
+    updateUiForProfile(ui->serverList->currentText());
+}
+
+void MainWindow::on_actionNewWindow_triggered()
+{
+    MainWindow* newWin = new MainWindow(nullptr, false);
+    newWin->setAttribute(Qt::WA_DeleteOnClose);
+    newWin->show();
+}
+
+void MainWindow::disconnectProfile(const QString& profileName)
+{
+    auto conn = getConnection(profileName);
+    if (!conn) {
+        return;
+    }
+
+    Logger::instance().addMessage(QString("[%1] %2").arg(profileName, tr("Disconnecting...")));
+    changeStatus(profileName, STATUS_DISCONNECTING);
+    term_thread(this, profileName, &conn->cmd_fd);
+}
+
+void MainWindow::changeStatus(int val)
+{
+    changeStatus(ui->serverList->currentText(), val);
+}
+
+void MainWindow::changeStatus(QString profileName, int val)
+{
+    auto conn = getConnection(profileName);
+    if (!conn) {
+        conn = std::make_shared<VpnConnection>();
+        conn->profileName = profileName;
+        m_connections[profileName] = conn;
+    }
+    conn->status = val;
+
+    if (val == STATUS_DISCONNECTED) {
+        conn->cmd_fd = INVALID_SOCKET;
+        conn->dns.clear();
+        conn->ip.clear();
+        conn->ip6.clear();
+        conn->cstp_cipher.clear();
+        conn->dtls_cipher.clear();
+        conn->tx_bytes.clear();
+        conn->rx_bytes.clear();
+        Logger::instance().addMessage(QString("[%1] %2").arg(profileName, QObject::tr("Disconnected")));
+
+        if (m_trayIcon && this->isHidden()) {
+            m_trayIcon->showMessage(QLatin1String("Disconnected"), QLatin1String("You were disconnected from ") + profileName,
+                QSystemTrayIcon::Warning, 10000);
+        }
+    } else if (val == STATUS_CONNECTED) {
+        if (conn->minimize_on_connect) {
+            if (m_trayIcon) {
+                hide();
+                m_trayIcon->showMessage(QLatin1String("Connected"), QLatin1String("You are connected to ") + profileName,
+                    QSystemTrayIcon::Information, 10000);
+            } else {
+                this->setWindowState(Qt::WindowMinimized);
+            }
+        }
+    }
+
+    updateServerListItem(profileName, val);
+    updateTrayIconState();
+
+    if (ui->serverList->currentText() == profileName) {
+        updateUiForProfile(profileName);
+    }
+
+    bool anyConnected = false;
+    bool anyConnecting = false;
+    for (const auto& c : m_connections) {
+        if (c->status == STATUS_CONNECTED) anyConnected = true;
+        if (c->status == STATUS_CONNECTING) anyConnecting = true;
+    }
+
+    if (anyConnected) {
+        if (!timer->isActive()) timer->start(UPDATE_TIMER);
+    } else {
+        if (timer->isActive()) timer->stop();
+    }
+
+    if (anyConnecting) {
+        if (!blink_timer->isActive()) blink_timer->start(1500);
+    } else {
+        if (blink_timer->isActive()) blink_timer->stop();
+    }
+}
+
+static void main_loop(VpnInfo* vpninfo, MainWindow* m, QString profileName)
+{
+    m->vpn_status_changed(profileName, STATUS_CONNECTING);
 
     bool pass_was_empty;
     bool reset_password = false;
@@ -694,27 +853,23 @@ static void main_loop(VpnInfo* vpninfo, MainWindow* m)
 
             QString oldpass, oldgroup;
             if (pass_was_empty != true) {
-                /* authentication failed in batch mode? switch to non
-                 * batch and retry */
                 oldpass = vpninfo->ss->get_password();
                 oldgroup = vpninfo->ss->get_groupname();
                 vpninfo->ss->clear_password();
                 vpninfo->ss->clear_groupname();
                 retry = true;
                 reset_password = true;
-                Logger::instance().addMessage(QObject::tr("Authentication failed in batch mode, retrying with batch mode disabled"));
+                Logger::instance().addMessage(QString("[%1] %2").arg(profileName, QObject::tr("Authentication failed in batch mode, retrying with batch mode disabled")));
                 vpninfo->reset_vpn();
                 continue;
             }
 
-            /* if we didn't manage to connect on a retry, the failure reason
-             * may not have been a changed password, reset it */
             if (reset_password == true) {
                 vpninfo->ss->set_password(oldpass);
                 vpninfo->ss->set_groupname(oldgroup);
             }
 
-            Logger::instance().addMessage(vpninfo->last_err);
+            Logger::instance().addMessage(QString("[%1] %2").arg(profileName, vpninfo->last_err));
             goto fail;
         }
 
@@ -722,61 +877,51 @@ static void main_loop(VpnInfo* vpninfo, MainWindow* m)
 
     vpninfo->get_info(dns, ip, ip6);
     vpninfo->get_cipher_info(cstp, dtls);
-    m->vpn_status_changed(STATUS_CONNECTED, dns, ip, ip6, cstp, dtls);
+    m->vpn_status_changed(profileName, STATUS_CONNECTED, dns, ip, ip6, cstp, dtls);
 
     vpninfo->ss->save();
     vpninfo->mainloop();
 
-fail: // LCA: drop this 'goto' and optimize values...
-    m->vpn_status_changed(STATUS_DISCONNECTED);
+fail:
+    m->vpn_status_changed(profileName, STATUS_DISCONNECTED);
 
     delete vpninfo;
 }
 
 void MainWindow::on_disconnectClicked()
 {
-    if (this->timer->isActive()) {
-        this->timer->stop();
-    }
-    Logger::instance().addMessage(QObject::tr("Disconnecting..."));
-    term_thread(this, &this->cmd_fd);
+    QString name = ui->serverList->currentText();
+    disconnectProfile(name);
 }
 
 void MainWindow::on_connectClicked()
 {
     VpnInfo* vpninfo = nullptr;
     StoredServer* ss = nullptr;
-    QFuture<void> future;
     QString name, url;
     QList<QNetworkProxy> proxies;
     QUrl turl;
     QNetworkProxyQuery query;
     int rval;
 
-    if (this->cmd_fd != INVALID_SOCKET) {
-        QMessageBox::information(this,
-            qApp->applicationName(),
-            tr("A previous VPN instance is still running (socket is active)"));
-        return;
-    }
-
-    if (this->futureWatcher.isRunning() == true) {
-        QMessageBox::information(this,
-            qApp->applicationName(),
-            tr("A previous VPN instance is still running"));
-        return;
-    }
-
-    if (ui->serverList->currentText().isEmpty()) {
+    name = ui->serverList->currentText();
+    if (name.isEmpty()) {
         QMessageBox::information(this,
             qApp->applicationName(),
             tr("You need to specify a gateway. e.g. vpn.example.com:443"));
         return;
     }
 
+    auto existingConn = getConnection(name);
+    if (existingConn && existingConn->status != STATUS_DISCONNECTED) {
+        QMessageBox::information(this,
+            qApp->applicationName(),
+            tr("Profile '%1' is already connecting or connected.").arg(name));
+        return;
+    }
+
     ss = new StoredServer();
 
-    name = ui->serverList->currentText();
     rval = ss->load(name);
     if (rval == 0) { // new entry
         // remove http?:// from string
@@ -789,7 +934,7 @@ void MainWindow::on_connectClicked()
 
         if (turl.isValid() == false) {
             delete ss;
-            goto fail;
+            return;
         }
 
         if (rval == 0) { // if a new server ask and set the protocol
@@ -801,14 +946,11 @@ void MainWindow::on_connectClicked()
                 delete ss;
                 return;
             }
-            //dialog saves the host, so we load again
             name = dialog.getNewProfileName();
             ss->load(name);
         }
 
         if (name.compare(ui->serverList->currentText()) != 0) {
-            // user typed https:// to a new entry. Replace the text of it
-            // with the actual name.
             ui->serverList->setItemText(ui->serverList->currentIndex(), name);
         }
     } else {
@@ -829,19 +971,21 @@ void MainWindow::on_connectClicked()
         QMessageBox::information(this,
             qApp->applicationName(),
             tr("There was an issue initializing the VPN (%1).").arg(ex.what()));
-        goto fail;
+        delete vpninfo;
+        return;
     }
 
-    this->minimize_on_connect = vpninfo->get_minimize();
-
+    QString profileName = ui->serverList->currentText();
+    vpninfo->set_profile_name(profileName);
     vpninfo->setUrl(turl);
 
-    this->cmd_fd = vpninfo->get_cmd_fd();
-    if (this->cmd_fd == INVALID_SOCKET) {
+    SOCKET vpn_fd = vpninfo->get_cmd_fd();
+    if (vpn_fd == INVALID_SOCKET) {
         QMessageBox::information(this,
             qApp->applicationName(),
             tr("There was an issue establishing IPC with openconnect; try restarting the application."));
-        goto fail;
+        delete vpninfo;
+        return;
     }
 
     if (ss->get_proxy()) {
@@ -854,7 +998,6 @@ void MainWindow::on_connectClicked()
                 url = "http://";
 
             if (url.isEmpty() == false) {
-
                 QString str;
                 if (proxies.at(0).user().isEmpty() != true) {
                     str = proxies.at(0).user() + ":" + proxies.at(0).password() + "@";
@@ -874,30 +1017,43 @@ void MainWindow::on_connectClicked()
         }
     }
 
-    future = QtConcurrent::run(main_loop, vpninfo, this);
+    auto conn = std::make_shared<VpnConnection>();
+    conn->profileName = profileName;
+    conn->vpninfo = vpninfo;
+    conn->cmd_fd = vpn_fd;
+    conn->status = STATUS_CONNECTING;
+    conn->minimize_on_connect = vpninfo->get_minimize();
+    m_connections[profileName] = conn;
 
-    this->futureWatcher.setFuture(future);
+    changeStatus(profileName, STATUS_CONNECTING);
 
-    return;
-fail: // LCA: remote 'fail' label :/
-    delete vpninfo;
+    conn->future = QtConcurrent::run(main_loop, vpninfo, this, profileName);
 }
 
 void MainWindow::closeEvent(QCloseEvent* event)
 {
+    bool anyActive = false;
+    for (const auto& conn : m_connections) {
+        if (conn && conn->cmd_fd != INVALID_SOCKET) {
+            anyActive = true;
+            break;
+        }
+    }
+
     if (m_trayIcon && m_trayIcon->isVisible() && ui->actionMinimizeTheApplicationInsteadOfClosing->isChecked()) {
         this->showMinimized();
         event->ignore();
     } else {
         event->accept();
 
-        if (m_trayIcon && m_disconnectAction->isEnabled()) {
-            connect(this, &MainWindow::readyToShutdown,
-                qApp, &QApplication::quit);
-            on_disconnectClicked();
-        } else {
-            qApp->quit();
+        if (anyActive) {
+            for (auto& conn : m_connections) {
+                if (conn && conn->cmd_fd != INVALID_SOCKET) {
+                    disconnectProfile(conn->profileName);
+                }
+            }
         }
+        qApp->quit();
     }
     QMainWindow::closeEvent(event);
 }
@@ -905,17 +1061,10 @@ void MainWindow::closeEvent(QCloseEvent* event)
 void MainWindow::request_update_stats()
 {
     char cmd = OC_CMD_STATS;
-    if (this->cmd_fd != INVALID_SOCKET) {
-        int ret = pipe_write(this->cmd_fd, &cmd, 1);
-        if (ret < 0) {
-            Logger::instance().addMessage(QObject::tr("update_stats: IPC error: %1").arg(net_errno));
-            if (this->timer->isActive())
-                this->timer->stop();
+    for (auto& conn : m_connections) {
+        if (conn && conn->cmd_fd != INVALID_SOCKET) {
+            pipe_write(conn->cmd_fd, &cmd, 1);
         }
-    } else {
-        Logger::instance().addMessage(QObject::tr("update_stats: invalid socket"));
-        if (this->timer->isActive())
-            this->timer->stop();
     }
 }
 
