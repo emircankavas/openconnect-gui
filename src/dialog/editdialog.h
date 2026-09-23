@@ -76,4 +76,5 @@ private:
     Ui::EditDialog* ui;
     std::vector<win_cert_st> winCerts;
     StoredServer* ss;
+    class QComboBox* m_iconComboBox = nullptr;
 };

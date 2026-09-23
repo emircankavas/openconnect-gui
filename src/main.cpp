@@ -140,11 +140,8 @@ int main(int argc, char* argv[])
 
     QtSingleApplication app(argc, argv);
     if (app.isRunning()) {
-        OcSettings settings;
-        if (settings.value("Settings/singleInstanceMode", false).toBool()) {
-            app.sendMessage("Wake up!");
-            return 0;
-        }
+        app.sendMessage("Wake up!");
+        return 0;
     }
     app.setApplicationDisplayName(APP_NAME);
     app.setQuitOnLastWindowClosed(false);
@@ -221,6 +218,9 @@ int main(int argc, char* argv[])
     QObject::connect(&app, &QtSingleApplication::messageReceived,
         [&mainWindow](const QString& message) {
             Logger::instance().addMessage(message);
+            mainWindow.show();
+            mainWindow.raise();
+            mainWindow.activateWindow();
         });
     return app.exec();
 }

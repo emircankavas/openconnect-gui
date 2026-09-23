@@ -19,6 +19,9 @@ set(${PROJECT_NAME}_SRCS
     dialog/logdialog.cpp
     dialog/logdialog.ui
     dialog/VpnProtocolModel.cpp
+    dialog/ProfileIcons.cpp
+    dialog/ToggleSwitch.cpp
+    dialog/ProfileCard.cpp
     dialog/mainwindow.cpp
     dialog/mainwindow.ui
     gtdb.cpp

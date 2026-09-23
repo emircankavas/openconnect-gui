@@ -46,6 +46,10 @@ extern "C" {
 
 class LogDialog;
 class QStateMachine;
+class ProfileCard;
+class QVBoxLayout;
+class QScrollArea;
+class QLabel;
 
 namespace Ui {
 class MainWindow;
@@ -103,6 +107,7 @@ public:
         QString& dtls_cipher);
 
     int get_log_level();
+    void connectProfile(const QString& profileName);
     void disconnectProfile(const QString& profileName);
 
 public slots:
@@ -119,7 +124,6 @@ public slots:
     void on_connectClicked();
     void on_disconnectClicked();
     void on_serverList_currentIndexChanged(int index);
-    void on_actionNewWindow_triggered();
 
     void closeEvent(QCloseEvent* event) override;
 
@@ -164,7 +168,14 @@ private:
     void updateServerListItem(const QString& profileName, int status);
     void updateTrayIconState();
 
+    void setupDashboardUi();
+
     QMap<QString, std::shared_ptr<VpnConnection>> m_connections;
+    QMap<QString, ProfileCard*> m_profileCards;
+    QVBoxLayout* m_cardsLayout = nullptr;
+    QWidget* m_cardsContainer = nullptr;
+    QScrollArea* m_scrollArea = nullptr;
+    QLabel* m_emptyStateLabel = nullptr;
 
     /* we keep the fd instead of a pointer to vpninfo to avoid
      * any multithread issues */

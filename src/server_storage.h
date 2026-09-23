@@ -114,6 +114,9 @@ public:
     int get_log_level();
     void set_log_level(const int log_level);
 
+    int get_icon_type() const;
+    void set_icon_type(const int icon_type);
+
 private:
     bool m_batch_mode;
     bool m_minimize_on_connect;
@@ -137,4 +140,5 @@ private:
     QString m_vpnc_script_filename;
     QString m_split_dns_domains;
     int m_log_level;
+    int m_icon_type;
 };

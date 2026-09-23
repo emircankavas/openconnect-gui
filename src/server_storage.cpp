@@ -36,6 +36,7 @@ StoredServer::StoredServer()
     , m_dtls_attempt_period{ 25 }
     , m_server_pin_algo(0)
     , m_log_level (-1)
+    , m_icon_type(0)
 {
     set_window(nullptr);
 }
@@ -252,6 +253,7 @@ int StoredServer::load(QString& name)
     m_split_dns_domains = settings.value("split-dns-domains").toString();
 
     m_log_level = settings.value("log-level", -1).toInt();
+    m_icon_type = settings.value("icon-type", 0).toInt();
 
     settings.endGroup();
     return rval;
@@ -305,6 +307,8 @@ int StoredServer::save()
         settings.remove("log-level");
     else
         settings.setValue("log-level", m_log_level);
+
+    settings.setValue("icon-type", m_icon_type);
 
     settings.endGroup();
     return 0;
@@ -523,5 +527,15 @@ int StoredServer::get_log_level()
 void StoredServer::set_log_level(const int log_level)
 {
     this->m_log_level = log_level;
+}
+
+int StoredServer::get_icon_type() const
+{
+    return this->m_icon_type;
+}
+
+void StoredServer::set_icon_type(const int icon_type)
+{
+    this->m_icon_type = icon_type;
 }
 

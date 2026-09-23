@@ -19,6 +19,7 @@ public:
     void setQuickConnect();
 
     QString getNewProfileName() const;
+    int getNewProfileIconType() const;
 
 signals:
     void connect();
@@ -40,4 +41,5 @@ private:
 
     Ui::NewProfileDialog* ui;
     bool quick_connect;
+    class QComboBox* m_iconComboBox = nullptr;
 };

@@ -18,10 +18,12 @@
  */
 
 #include "editdialog.h"
+#include "ProfileIcons.h"
 #include "VpnProtocolModel.h"
 #include "common.h"
 #include "server_storage.h"
 #include "ui_editdialog.h"
+#include <QComboBox>
 #include <QFileDialog>
 #include <QItemSelectionModel>
 #include <QListWidget>
@@ -173,6 +175,15 @@ EditDialog::EditDialog(QString server, QWidget* parent)
         }
     });
     ui->gatewayEdit->setText(ss->get_server_gateway());
+
+    m_iconComboBox = new QComboBox(this);
+    ProfileIcons::populateComboBox(m_iconComboBox);
+    int currentIcon = ss->get_icon_type();
+    if (currentIcon >= 0 && currentIcon < ProfileIcons::COUNT) {
+        m_iconComboBox->setCurrentIndex(currentIcon);
+    }
+    ui->settingsProfileLayout->insertRow(2, tr("Icon:"), m_iconComboBox);
+
     ui->userCertHash->setText(ss->get_client_cert_pin());
     ui->caCertHash->setText(ss->get_ca_cert_pin());
     ui->batchModeBox->setChecked(ss->get_batch_mode());
@@ -311,6 +322,10 @@ void EditDialog::on_buttonBox_accepted()
         type = 0; //first entry is "application default"
     }
     ss->set_log_level(loglevel_rtab[type]);
+
+    if (m_iconComboBox) {
+        ss->set_icon_type(m_iconComboBox->currentData().toInt());
+    }
 
     ss->save();
     this->accept();

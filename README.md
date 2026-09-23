@@ -6,11 +6,12 @@ This project is an enhanced fork of the official [OpenConnect GUI](https://gui.o
 
 ## Key Features in this Fork
 
-### 1. Concurrent Multi-Profile VPN Connections
-- **Simultaneous Connections:** Connect to and manage multiple enterprise VPN profiles at the same time without disconnecting existing sessions.
-- **Per-Profile State & Statistics:** Live status indicators (🟢 Connected, 🟡 Connecting, ⚪ Disconnected), dynamic bandwidth metering (download/upload speed, byte counters), and isolated connect/disconnect controls per profile.
+### 1. Concurrent Multi-Profile VPN Connections & Modern Dashboard
+- **Unified Dashboard UI:** Modern dark dashboard displaying all VPN profiles as interactive cards with instant toggle switches, protocol/cipher badges, DNS info, and real-time traffic statistics.
+- **Simultaneous Connections:** Connect to and manage multiple enterprise VPN profiles at the same time directly from the dashboard without needing multiple windows.
+- **Per-Profile State & Statistics:** Live status indicators, dynamic bandwidth metering (download/upload byte counters), and isolated connect/disconnect controls per profile card.
 - **Tagged Activity Logs:** Progress and diagnostic logs are automatically prefixed with the active profile name (e.g., `[Office] CSTP connected...`), keeping logs clean and readable.
-- **Multi-Window Support:** Open multiple profile windows concurrently via `File -> New Window` (`Cmd+N` / `Ctrl+N`).
+- **Single Window Mode:** Multi-window mode replaced with a unified card-based dashboard and strictly enforced single-instance mode.
 
 ### 2. Modern macOS Split-DNS & Wi-Fi Protection
 - **Wi-Fi DNS Preservation:** Prevents VPN connections from overwriting the physical Wi-Fi/Ethernet interface's DHCP DNS servers via legacy `networksetup` overrides.

@@ -19,6 +19,8 @@
 
 #include "mainwindow.h"
 #include "NewProfileDialog.h"
+#include "ProfileCard.h"
+#include "ToggleSwitch.h"
 #include "config.h"
 #include "editdialog.h"
 #include "logdialog.h"
@@ -28,6 +30,13 @@
 #include "ui_mainwindow.h"
 #include "vpninfo.h"
 #include "logger.h"
+
+#include <QScrollArea>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QPainter>
+#include <QLabel>
+#include <QPushButton>
 
 extern "C" {
 #include <gnutls/gnutls.h>
@@ -98,6 +107,7 @@ MainWindow::MainWindow(QWidget* parent, bool useTray, const QString profileName)
     , ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
+    setupDashboardUi();
 
     connect(ui->viewLogButton, &QPushButton::clicked,
         this, &MainWindow::createLogDialog);
@@ -134,8 +144,6 @@ MainWindow::MainWindow(QWidget* parent, bool useTray, const QString profileName)
     connect(this, QOverload<QString, QString, QString, QString>::of(&MainWindow::stats_changed_sig),
         this, QOverload<QString, QString, QString, QString>::of(&MainWindow::statsChanged),
         Qt::QueuedConnection);
-    connect(ui->actionNewWindow, &QAction::triggered,
-        this, &MainWindow::on_actionNewWindow_triggered);
     connect(ui->serverList, QOverload<int>::of(&QComboBox::currentIndexChanged),
         this, &MainWindow::on_serverList_currentIndexChanged);
     connect(ui->connectionButton, &QPushButton::clicked,
@@ -488,6 +496,7 @@ void MainWindow::vpn_status_changed(const QString& profileName, int connected, Q
         conn->cstp_cipher = cstp_cipher;
         conn->dtls_cipher = dtls_cipher;
     }
+
     emit vpn_status_changed_sig(profileName, connected);
 }
 
@@ -516,6 +525,13 @@ void MainWindow::statsChanged(QString profileName, QString tx, QString rx, QStri
         conn->dtls_cipher = dtls;
     }
 
+    if (m_profileCards.contains(profileName)) {
+        m_profileCards[profileName]->setStats(rx, tx);
+        if (!dtls.isEmpty()) {
+            m_profileCards[profileName]->setCipher(dtls);
+        }
+    }
+
     if (ui->serverList->currentText() == profileName) {
         ui->downloadLabel->setText(rx);
         ui->uploadLabel->setText(tx);
@@ -537,6 +553,159 @@ void MainWindow::updateStats(const QString& profileName, const struct oc_stats* 
         dtls);
 }
 
+class OpenConnectLogoWidget : public QWidget {
+public:
+    explicit OpenConnectLogoWidget(QWidget* parent = nullptr) : QWidget(parent)
+    {
+        setFixedSize(28, 28);
+    }
+protected:
+    void paintEvent(QPaintEvent*) override
+    {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+
+        qreal cx = width() / 2.0;
+        qreal cy = height() / 2.0;
+
+        // Outer cyan ring
+        p.setPen(QPen(QColor("#00d2d3"), 2.0));
+        p.setBrush(Qt::NoBrush);
+        p.drawEllipse(QPointF(cx, cy), 11, 11);
+
+        // Middle cyan ring
+        p.setPen(QPen(QColor("#00b4d8"), 1.8));
+        p.drawEllipse(QPointF(cx, cy), 6.5, 6.5);
+
+        // Center dot
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor("#00e5ff"));
+        p.drawEllipse(QPointF(cx, cy), 2.5, 2.5);
+    }
+};
+
+void MainWindow::setupDashboardUi()
+{
+    ui->tabWidget->hide();
+
+    setStyleSheet(
+        "QMainWindow { background-color: #0d1219; }"
+        "#centralWidget { background-color: #0d1219; }"
+        "QScrollBar:vertical {"
+        "    border: none;"
+        "    background: transparent;"
+        "    width: 6px;"
+        "    margin: 0px;"
+        "}"
+        "QScrollBar::handle:vertical {"
+        "    background: #232d3d;"
+        "    min-height: 25px;"
+        "    border-radius: 3px;"
+        "}"
+        "QScrollBar::handle:vertical:hover {"
+        "    background: #35445c;"
+        "}"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {"
+        "    height: 0px;"
+        "}"
+        "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {"
+        "    background: none;"
+        "}"
+    );
+
+    resize(580, 680);
+    setMinimumSize(480, 450);
+
+    delete ui->centralWidget->layout();
+    QVBoxLayout* centralLayout = new QVBoxLayout(ui->centralWidget);
+    centralLayout->setContentsMargins(24, 20, 24, 20);
+    centralLayout->setSpacing(18);
+
+    // 1. Top Header: Logo + "OpenConnect" + cyan accent dot
+    QHBoxLayout* logoLayout = new QHBoxLayout();
+    logoLayout->setSpacing(10);
+    logoLayout->setContentsMargins(0, 0, 0, 0);
+
+    OpenConnectLogoWidget* logoWidget = new OpenConnectLogoWidget(this);
+    logoLayout->addWidget(logoWidget);
+
+    QVBoxLayout* brandCol = new QVBoxLayout();
+    brandCol->setSpacing(2);
+
+    QLabel* brandTitle = new QLabel(QStringLiteral("OpenConnect"), this);
+    brandTitle->setStyleSheet("font-size: 19px; font-weight: bold; color: #ffffff; letter-spacing: 0.5px;");
+    brandCol->addWidget(brandTitle);
+
+    QLabel* brandDot = new QLabel(this);
+    brandDot->setFixedSize(6, 6);
+    brandDot->setStyleSheet("background-color: #00d2d3; border-radius: 3px;");
+    brandCol->addWidget(brandDot);
+
+    logoLayout->addLayout(brandCol);
+    logoLayout->addStretch();
+    centralLayout->addLayout(logoLayout);
+
+    // 2. Section Header: "VPN Profilleri" + "+ Profil Ekle"
+    QHBoxLayout* sectionHeader = new QHBoxLayout();
+    sectionHeader->setContentsMargins(0, 4, 0, 4);
+
+    QLabel* sectionTitle = new QLabel(tr("VPN Profilleri"), this);
+    sectionTitle->setStyleSheet("font-size: 20px; font-weight: bold; color: #ffffff;");
+    sectionHeader->addWidget(sectionTitle);
+
+    sectionHeader->addStretch();
+
+    QPushButton* btnAddProfile = new QPushButton(tr("+ Profil Ekle"), this);
+    btnAddProfile->setCursor(Qt::PointingHandCursor);
+    btnAddProfile->setFixedHeight(32);
+    btnAddProfile->setStyleSheet(
+        "QPushButton {"
+        "   background-color: #00c2cb;"
+        "   color: #0d141e;"
+        "   border: none;"
+        "   border-radius: 6px;"
+        "   font-size: 13px;"
+        "   font-weight: bold;"
+        "   padding: 0px 16px;"
+        "}"
+        "QPushButton:hover {"
+        "   background-color: #00d2d3;"
+        "   color: #000000;"
+        "}"
+        "QPushButton:pressed {"
+        "   background-color: #009aa2;"
+        "}"
+    );
+    connect(btnAddProfile, &QPushButton::clicked, this, &MainWindow::on_actionNewProfile_triggered);
+    sectionHeader->addWidget(btnAddProfile);
+
+    centralLayout->addLayout(sectionHeader);
+
+    // 3. Scroll Area with Profile Cards
+    m_scrollArea = new QScrollArea(this);
+    m_scrollArea->setWidgetResizable(true);
+    m_scrollArea->setFrameShape(QFrame::NoFrame);
+    m_scrollArea->setStyleSheet("background: transparent; border: none;");
+
+    m_cardsContainer = new QWidget();
+    m_cardsContainer->setStyleSheet("background: transparent;");
+
+    m_cardsLayout = new QVBoxLayout(m_cardsContainer);
+    m_cardsLayout->setContentsMargins(0, 0, 4, 0);
+    m_cardsLayout->setSpacing(14);
+
+    m_emptyStateLabel = new QLabel(tr("Kayıtlı VPN profili bulunamadı.\nYukarıdaki '+ Profil Ekle' butonuna tıklayarak profil oluşturabilirsiniz."), m_cardsContainer);
+    m_emptyStateLabel->setAlignment(Qt::AlignCenter);
+    m_emptyStateLabel->setStyleSheet("color: #64748b; font-size: 14px; padding: 40px;");
+    m_cardsLayout->addWidget(m_emptyStateLabel);
+    m_emptyStateLabel->hide();
+
+    m_cardsLayout->addStretch();
+
+    m_scrollArea->setWidget(m_cardsContainer);
+    centralLayout->addWidget(m_scrollArea);
+}
+
 #define PREFIX "server:"
 void MainWindow::reload_settings()
 {
@@ -545,6 +714,15 @@ void MainWindow::reload_settings()
     if (m_trayIcon) {
         m_trayIconMenuConnections->clear();
     }
+
+    // Clear existing profile cards
+    for (auto* card : m_profileCards) {
+        if (m_cardsLayout) {
+            m_cardsLayout->removeWidget(card);
+        }
+        delete card;
+    }
+    m_profileCards.clear();
 
     OcSettings settings;
     for (const auto& key : settings.allKeys()) {
@@ -576,9 +754,72 @@ void MainWindow::reload_settings()
                     }
                 });
             }
+
+            // Create ProfileCard
+            if (m_cardsLayout && m_cardsContainer) {
+                StoredServer ss;
+                ss.load(str);
+
+                QString gateway = ss.get_server_gateway();
+                QString protocol = ss.get_protocol_name();
+                if (protocol.isEmpty()) {
+                    protocol = QStringLiteral("Cisco AnyConnect");
+                }
+
+                int iconIndex = ss.get_icon_type();
+                ProfileCard* card = new ProfileCard(str, gateway, protocol, iconIndex, m_cardsContainer);
+                if (conn) {
+                    card->setConnectionStatus(conn->status);
+                    card->setDns(conn->dns);
+                    card->setStats(conn->rx_bytes, conn->tx_bytes);
+                    card->setCipher(conn->dtls_cipher.isEmpty() ? conn->cstp_cipher : conn->dtls_cipher);
+                }
+
+                connect(card, &ProfileCard::toggleRequested, this, [this, str](bool connectState) {
+                    if (connectState) {
+                        connectProfile(str);
+                    } else {
+                        disconnectProfile(str);
+                    }
+                });
+
+                connect(card, &ProfileCard::logsRequested, this, &MainWindow::createLogDialog);
+
+                connect(card, &ProfileCard::editRequested, this, [this, str]() {
+                    EditDialog dialog(str, this);
+                    if (dialog.exec() == QDialog::Accepted) {
+                        reload_settings();
+                    }
+                });
+
+                connect(card, &ProfileCard::deleteRequested, this, [this, str]() {
+                    QMessageBox mbox(this);
+                    mbox.setText(tr("'%1' profilini silmek istediğinize emin misiniz?").arg(str));
+                    mbox.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
+                    mbox.setDefaultButton(QMessageBox::No);
+                    if (mbox.exec() == QMessageBox::Yes) {
+                        OcSettings s;
+                        QString pfx = QStringLiteral("server:") + str + "/";
+                        for (const auto& k : s.allKeys()) {
+                            if (k.startsWith(pfx)) {
+                                s.remove(k);
+                            }
+                        }
+                        s.sync();
+                        reload_settings();
+                    }
+                });
+
+                m_cardsLayout->insertWidget(m_cardsLayout->count() - 1, card);
+                m_profileCards.insert(str, card);
+            }
         }
     }
     ui->serverList->blockSignals(false);
+
+    if (m_emptyStateLabel) {
+        m_emptyStateLabel->setVisible(m_profileCards.isEmpty());
+    }
 
     updateUiForProfile(ui->serverList->currentText());
 }
@@ -743,11 +984,15 @@ void MainWindow::on_serverList_currentIndexChanged(int index)
     updateUiForProfile(ui->serverList->currentText());
 }
 
-void MainWindow::on_actionNewWindow_triggered()
+void MainWindow::connectProfile(const QString& profileName)
 {
-    MainWindow* newWin = new MainWindow(nullptr, false);
-    newWin->setAttribute(Qt::WA_DeleteOnClose);
-    newWin->show();
+    int idx = ui->serverList->findText(profileName);
+    if (idx != -1) {
+        ui->serverList->setCurrentIndex(idx);
+    } else {
+        ui->serverList->setEditText(profileName);
+    }
+    on_connectClicked();
 }
 
 void MainWindow::disconnectProfile(const QString& profileName)
@@ -806,6 +1051,14 @@ void MainWindow::changeStatus(QString profileName, int val)
 
     updateServerListItem(profileName, val);
     updateTrayIconState();
+
+    if (m_profileCards.contains(profileName)) {
+        m_profileCards[profileName]->setConnectionStatus(val);
+        if (conn) {
+            m_profileCards[profileName]->setDns(conn->dns);
+            m_profileCards[profileName]->setCipher(conn->dtls_cipher.isEmpty() ? conn->cstp_cipher : conn->dtls_cipher);
+        }
+    }
 
     if (ui->serverList->currentText() == profileName) {
         updateUiForProfile(profileName);

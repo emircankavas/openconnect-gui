@@ -6,8 +6,10 @@
 #include "server_storage.h"
 
 #include <QPushButton>
+#include <QComboBox>
 #include <OcSettings.h>
 #include <QUrl>
+#include "ProfileIcons.h"
 
 #include <memory>
 
@@ -18,6 +20,10 @@ NewProfileDialog::NewProfileDialog(QWidget* parent)
     ui->setupUi(this);
     VpnProtocolModel* model = new VpnProtocolModel(this);
     ui->protocolComboBox->setModel(model);
+
+    m_iconComboBox = new QComboBox(this);
+    ProfileIcons::populateComboBox(m_iconComboBox);
+    ui->formLayout->addRow(tr("Icon:"), m_iconComboBox);
 
     ui->buttonBox->button(QDialogButtonBox::SaveAll)->setText(tr("Save && Connect"));
     ui->buttonBox->button(QDialogButtonBox::SaveAll)->setDefault(true);
@@ -64,6 +70,11 @@ void NewProfileDialog::setUrl(QUrl & url)
 QString NewProfileDialog::getNewProfileName() const
 {
     return ui->lineEditName->text();
+}
+
+int NewProfileDialog::getNewProfileIconType() const
+{
+    return m_iconComboBox ? m_iconComboBox->currentData().toInt() : 0;
 }
 
 void NewProfileDialog::changeEvent(QEvent* e)
@@ -148,6 +159,7 @@ void NewProfileDialog::on_buttonBox_accepted()
     ss->set_label(ui->lineEditName->text());
     ss->set_server_gateway(ui->lineEditGateway->text());
     ss->set_protocol_name(ui->protocolComboBox->currentData(ROLE_PROTOCOL_NAME).toString());
+    ss->set_icon_type(getNewProfileIconType());
     ss->save();
 
     accept();
