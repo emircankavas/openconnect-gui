@@ -45,8 +45,69 @@ extern "C" {
 #include <mach-o/dyld.h>
 #endif
 
-#include <csignal>
-#include <cstdio>
+#if defined(Q_OS_MACOS)
+#include <objc/runtime.h>
+#include <objc/message.h>
+
+static MainWindow* s_macMainWindow = nullptr;
+
+static BOOL dockReopenHandler(id self, SEL _cmd, id sender, BOOL hasVisibleWindows)
+{
+    Q_UNUSED(self);
+    Q_UNUSED(_cmd);
+    Q_UNUSED(sender);
+    if (s_macMainWindow) {
+        s_macMainWindow->showNormal();
+        s_macMainWindow->show();
+        s_macMainWindow->raise();
+        s_macMainWindow->activateWindow();
+    }
+    return YES;
+}
+
+static void setupMacDockHandler(MainWindow* w)
+{
+    s_macMainWindow = w;
+    Class nsAppClass = objc_getClass("NSApplication");
+    if (!nsAppClass) return;
+    SEL sharedAppSel = sel_registerName("sharedApplication");
+    id nsApp = ((id (*)(Class, SEL))objc_msgSend)(nsAppClass, sharedAppSel);
+    if (!nsApp) return;
+    SEL delegateSel = sel_registerName("delegate");
+    id delegate = ((id (*)(id, SEL))objc_msgSend)(nsApp, delegateSel);
+    if (!delegate) return;
+    Class cls = object_getClass(delegate);
+    if (!cls) return;
+
+    SEL reopenSel = sel_registerName("applicationShouldHandleReopen:hasVisibleWindows:");
+    if (!class_addMethod(cls, reopenSel, (IMP)dockReopenHandler, "B@:@B")) {
+        Method m = class_getInstanceMethod(cls, reopenSel);
+        if (m) {
+            method_setImplementation(m, (IMP)dockReopenHandler);
+        }
+    }
+}
+
+class MacAppEventFilter : public QObject {
+public:
+    explicit MacAppEventFilter(MainWindow* win, QObject* parent = nullptr)
+        : QObject(parent), m_win(win) {}
+protected:
+    bool eventFilter(QObject* obj, QEvent* ev) override {
+        if (ev->type() == QEvent::ApplicationActivate) {
+            if (m_win && (m_win->isHidden() || m_win->isMinimized())) {
+                m_win->showNormal();
+                m_win->show();
+                m_win->raise();
+                m_win->activateWindow();
+            }
+        }
+        return QObject::eventFilter(obj, ev);
+    }
+private:
+    MainWindow* m_win;
+};
+#endif
 
 static void log_callback(int level, const char* str)
 {
@@ -201,9 +262,14 @@ int main(int argc, char* argv[])
 
     parser.process(app);
 
+
     const QString profileName{ parser.value(QLatin1String("server")) };
     MainWindow mainWindow(nullptr, haveTray, profileName);
     app.setActivationWindow(&mainWindow);
+#if defined(Q_OS_MACOS)
+    setupMacDockHandler(&mainWindow);
+    app.installEventFilter(new MacAppEventFilter(&mainWindow, &app));
+#endif
 #ifdef PROJ_PKCS11
     gnutls_pkcs11_set_pin_function(pin_callback, &mainWindow);
 #endif

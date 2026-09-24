@@ -274,18 +274,22 @@ MainWindow::MainWindow(QWidget* parent, bool useTray, const QString profileName)
     QState* s112_minimizedWindow = new QState();
     m_appWindowStateMachine->addState(s112_minimizedWindow);
     connect(s112_minimizedWindow, &QState::entered, [=]() {
+#ifndef Q_OS_MACOS
         showMinimized();
         if (ui->actionMinimizeToTheNotificationArea->isChecked()) {
             QTimer::singleShot(10, this, SLOT(hide()));
         }
+#endif
     });
     connect(s112_minimizedWindow, &QState::exited, [=]() {
         this->showNormal();
+#ifndef Q_OS_MACOS
         if (ui->actionMinimizeToTheNotificationArea->isChecked()) {
             show();
             raise();
             activateWindow();
         }
+#endif
     });
     s112_minimizedWindow->assignProperty(ui->actionRestore, "enabled", true);
     s112_minimizedWindow->assignProperty(ui->actionMinimize, "enabled", false);
@@ -1294,8 +1298,13 @@ void MainWindow::closeEvent(QCloseEvent* event)
     }
 
     if (m_trayIcon && m_trayIcon->isVisible() && ui->actionMinimizeTheApplicationInsteadOfClosing->isChecked()) {
+#ifdef Q_OS_MACOS
+        this->hide();
+#else
         this->showMinimized();
+#endif
         event->ignore();
+        return;
     } else {
         event->accept();
 
@@ -1423,6 +1432,12 @@ void MainWindow::createTrayIcon()
     m_trayIconMenu->addSeparator();
     m_trayIconMenu->addAction(ui->actionMinimize);
     m_trayIconMenu->addAction(ui->actionRestore);
+    connect(ui->actionRestore, &QAction::triggered, this, [this]() {
+        showNormal();
+        show();
+        raise();
+        activateWindow();
+    });
     m_trayIconMenu->addSeparator();
     m_trayIconMenu->addAction(ui->actionQuit);
 
@@ -1437,13 +1452,18 @@ void MainWindow::iconActivated(QSystemTrayIcon::ActivationReason reason)
     case QSystemTrayIcon::Trigger:
     case QSystemTrayIcon::DoubleClick:
     case QSystemTrayIcon::MiddleClick:
-#ifdef Q_OS_WIN
-        if (isMinimized()) {
+        if (isHidden() || isMinimized()) {
             showNormal();
+            show();
+            raise();
+            activateWindow();
         } else {
+#ifdef Q_OS_WIN
             showMinimized();
-        }
+#else
+            hide();
 #endif
+        }
         break;
     default:
         break;
