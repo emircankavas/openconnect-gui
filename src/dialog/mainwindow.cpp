@@ -724,7 +724,8 @@ void MainWindow::reload_settings()
         if (m_cardsLayout) {
             m_cardsLayout->removeWidget(card);
         }
-        delete card;
+        card->hide();
+        card->deleteLater();
     }
     m_profileCards.clear();
 
@@ -793,8 +794,9 @@ void MainWindow::reload_settings()
                     EditDialog dialog(str, this);
                     if (dialog.exec() == QDialog::Accepted) {
                         reload_settings();
+                        ui->serverList->setCurrentText(dialog.getEditedProfileName());
                     }
-                });
+                }, Qt::QueuedConnection);
 
                 connect(card, &ProfileCard::deleteRequested, this, [this, str]() {
                     QMessageBox mbox(this);
@@ -812,7 +814,7 @@ void MainWindow::reload_settings()
                         s.sync();
                         reload_settings();
                     }
-                });
+                }, Qt::QueuedConnection);
 
                 m_cardsLayout->insertWidget(m_cardsLayout->count() - 1, card);
                 m_profileCards.insert(str, card);

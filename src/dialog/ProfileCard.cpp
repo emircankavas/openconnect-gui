@@ -282,7 +282,7 @@ void ProfileCard::onToggleClicked(bool checked)
 
 void ProfileCard::contextMenuEvent(QContextMenuEvent* event)
 {
-    QMenu menu(this);
+    QMenu menu;
     menu.setStyleSheet(
         "QMenu {"
         "   background-color: #1a222f;"
@@ -303,26 +303,30 @@ void ProfileCard::contextMenuEvent(QContextMenuEvent* event)
     QAction* actConnect = nullptr;
     if (m_status == STATUS_CONNECTED) {
         actConnect = menu.addAction(tr("Bağlantıyı Kes (Disconnect)"));
-        connect(actConnect, &QAction::triggered, this, [this]() { emit toggleRequested(false); });
     } else if (m_status == STATUS_DISCONNECTED) {
         actConnect = menu.addAction(tr("Bağlan (Connect)"));
-        connect(actConnect, &QAction::triggered, this, [this]() { emit toggleRequested(true); });
     }
 
     menu.addSeparator();
 
     QAction* actCopyGw = menu.addAction(tr("Ağ Geçidini Kopyala"));
-    connect(actCopyGw, &QAction::triggered, this, [this]() {
-        QApplication::clipboard()->setText(m_gateway);
-    });
-
     QAction* actEdit = menu.addAction(tr("Profili Düzenle"));
-    connect(actEdit, &QAction::triggered, this, &ProfileCard::editRequested);
-
     QAction* actDelete = menu.addAction(tr("Profili Sil"));
-    connect(actDelete, &QAction::triggered, this, &ProfileCard::deleteRequested);
 
-    menu.exec(event->globalPos());
+    QAction* selected = menu.exec(event->globalPos());
+    if (!selected) {
+        return;
+    }
+
+    if (selected == actConnect) {
+        emit toggleRequested(m_status == STATUS_DISCONNECTED);
+    } else if (selected == actCopyGw) {
+        QApplication::clipboard()->setText(m_gateway);
+    } else if (selected == actEdit) {
+        emit editRequested();
+    } else if (selected == actDelete) {
+        emit deleteRequested();
+    }
 }
 
 void ProfileCard::paintEvent(QPaintEvent* event)
