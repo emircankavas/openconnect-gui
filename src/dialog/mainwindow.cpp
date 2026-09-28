@@ -31,12 +31,15 @@
 #include "vpninfo.h"
 #include "logger.h"
 
+#include "AdPasswordChecker.h"
+
 #include <QScrollArea>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QPainter>
 #include <QLabel>
 #include <QPushButton>
+#include <QThread>
 
 extern "C" {
 #include <gnutls/gnutls.h>
@@ -625,7 +628,7 @@ void MainWindow::setupDashboardUi()
     centralLayout->setContentsMargins(24, 20, 24, 20);
     centralLayout->setSpacing(18);
 
-    // 1. Top Header: Logo + "OpenConnect" + cyan accent dot
+    // 1. Top Header: Logo + "OpenConnect"
     QHBoxLayout* logoLayout = new QHBoxLayout();
     logoLayout->setSpacing(10);
     logoLayout->setContentsMargins(0, 0, 0, 0);
@@ -633,19 +636,10 @@ void MainWindow::setupDashboardUi()
     OpenConnectLogoWidget* logoWidget = new OpenConnectLogoWidget(this);
     logoLayout->addWidget(logoWidget);
 
-    QVBoxLayout* brandCol = new QVBoxLayout();
-    brandCol->setSpacing(2);
-
     QLabel* brandTitle = new QLabel(QStringLiteral("OpenConnect"), this);
     brandTitle->setStyleSheet("font-size: 19px; font-weight: bold; color: #ffffff; letter-spacing: 0.5px;");
-    brandCol->addWidget(brandTitle);
+    logoLayout->addWidget(brandTitle);
 
-    QLabel* brandDot = new QLabel(this);
-    brandDot->setFixedSize(6, 6);
-    brandDot->setStyleSheet("background-color: #00d2d3; border-radius: 3px;");
-    brandCol->addWidget(brandDot);
-
-    logoLayout->addLayout(brandCol);
     logoLayout->addStretch();
     centralLayout->addLayout(logoLayout);
 
@@ -779,6 +773,18 @@ void MainWindow::reload_settings()
                     card->setStats(conn->rx_bytes, conn->tx_bytes);
                     card->setCipher(conn->dtls_cipher.isEmpty() ? conn->cstp_cipher : conn->dtls_cipher);
                 }
+
+                card->setAdSettings(ss.get_ad_check_enabled(),
+                                    ss.get_ad_domain(),
+                                    ss.get_ad_srv_user(),
+                                    ss.get_ad_user_expiry_text(),
+                                    ss.get_ad_user_expiry_days(),
+                                    ss.get_ad_srv_expiry_text(),
+                                    ss.get_ad_srv_expiry_days());
+
+                connect(card, &ProfileCard::adRefreshRequested, this, [this, str]() {
+                    checkAdPasswordExpiry(str);
+                }, Qt::QueuedConnection);
 
                 connect(card, &ProfileCard::toggleRequested, this, [this, str](bool connectState) {
                     if (connectState) {
@@ -1013,6 +1019,61 @@ void MainWindow::disconnectProfile(const QString& profileName)
     term_thread(this, profileName, &conn->cmd_fd);
 }
 
+void MainWindow::checkAdPasswordExpiry(const QString& profileName)
+{
+    StoredServer ss;
+    QString pName = profileName;
+    if (ss.load(pName) < 0 || !ss.get_ad_check_enabled()) {
+        return;
+    }
+
+    auto conn = getConnection(profileName);
+    QString password = ss.get_password();
+    if (password.isEmpty() && conn && conn->vpninfo && conn->vpninfo->ss) {
+        password = conn->vpninfo->ss->get_password();
+    }
+
+    QString domain = ss.get_ad_domain();
+    QString baseDn = ss.get_ad_base_dn();
+    QString username = ss.get_username();
+    QString srvUser = ss.get_ad_srv_user();
+
+    if (m_profileCards.contains(profileName)) {
+        m_profileCards[profileName]->setAdExpiryInfo(tr("Sorgulanıyor..."), -999,
+                                                     srvUser.isEmpty() ? "" : tr("Sorgulanıyor..."), -999);
+    }
+
+    QThread::create([this, profileName, domain, baseDn, username, password, srvUser]() {
+        // Give macOS utun DNS resolver and routing table 1.5 seconds to settle upon VPN connection
+        QThread::msleep(1500);
+
+        AdExpiryInfo result = AdPasswordChecker::check(domain, baseDn, username, password, srvUser);
+
+        QMetaObject::invokeMethod(this, [this, profileName, result]() {
+            if (result.success) {
+                StoredServer::save_ad_cache(profileName,
+                                            result.userDays,
+                                            result.userText,
+                                            result.srvDays,
+                                            result.srvText);
+                Logger::instance().addMessage(QString("[%1] AD şifre kontrolü: Kişisel (%2)%3")
+                    .arg(profileName, result.userText,
+                         result.srvText.isEmpty() ? "" : QString(", SRV (%1)").arg(result.srvText)));
+            } else if (!result.error.isEmpty()) {
+                Logger::instance().addMessage(QString("[%1] AD şifre sorgu hatası: %2")
+                    .arg(profileName, result.error));
+            }
+
+            if (m_profileCards.contains(profileName)) {
+                m_profileCards[profileName]->setAdExpiryInfo(result.userText,
+                                                             result.userDays,
+                                                             result.srvText,
+                                                             result.srvDays);
+            }
+        }, Qt::QueuedConnection);
+    })->start();
+}
+
 void MainWindow::changeStatus(int val)
 {
     changeStatus(ui->serverList->currentText(), val);
@@ -1063,6 +1124,14 @@ void MainWindow::changeStatus(QString profileName, int val)
         if (conn) {
             m_profileCards[profileName]->setDns(conn->dns);
             m_profileCards[profileName]->setCipher(conn->dtls_cipher.isEmpty() ? conn->cstp_cipher : conn->dtls_cipher);
+        }
+    }
+
+    if (val == STATUS_CONNECTED) {
+        StoredServer ss;
+        QString pName = profileName;
+        if (ss.load(pName) >= 0 && ss.get_ad_check_enabled()) {
+            checkAdPasswordExpiry(profileName);
         }
     }
 

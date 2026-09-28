@@ -37,6 +37,9 @@ StoredServer::StoredServer()
     , m_server_pin_algo(0)
     , m_log_level (-1)
     , m_icon_type(0)
+    , m_ad_check_enabled{ false }
+    , m_ad_user_expiry_days{ -999 }
+    , m_ad_srv_expiry_days{ -999 }
 {
     set_window(nullptr);
 }
@@ -255,6 +258,16 @@ int StoredServer::load(QString& name)
     m_log_level = settings.value("log-level", -1).toInt();
     m_icon_type = settings.value("icon-type", 0).toInt();
 
+    m_ad_check_enabled = settings.value("ad-enabled", false).toBool();
+    m_ad_domain = settings.value("ad-domain").toString();
+    m_ad_base_dn = settings.value("ad-base-dn").toString();
+    m_ad_srv_user = settings.value("ad-srv-user").toString();
+    m_ad_user_expiry_days = settings.value("ad-user-expiry-days", -999).toInt();
+    m_ad_user_expiry_text = settings.value("ad-user-expiry-text").toString();
+    m_ad_srv_expiry_days = settings.value("ad-srv-expiry-days", -999).toInt();
+    m_ad_srv_expiry_text = settings.value("ad-srv-expiry-text").toString();
+    m_ad_last_checked = settings.value("ad-last-checked").toString();
+
     settings.endGroup();
     return rval;
 }
@@ -310,8 +323,31 @@ int StoredServer::save()
 
     settings.setValue("icon-type", m_icon_type);
 
+    settings.setValue("ad-enabled", m_ad_check_enabled);
+    settings.setValue("ad-domain", m_ad_domain);
+    settings.setValue("ad-base-dn", m_ad_base_dn);
+    settings.setValue("ad-srv-user", m_ad_srv_user);
+    settings.setValue("ad-user-expiry-days", m_ad_user_expiry_days);
+    settings.setValue("ad-user-expiry-text", m_ad_user_expiry_text);
+    settings.setValue("ad-srv-expiry-days", m_ad_srv_expiry_days);
+    settings.setValue("ad-srv-expiry-text", m_ad_srv_expiry_text);
+    settings.setValue("ad-last-checked", m_ad_last_checked);
+
     settings.endGroup();
     return 0;
+}
+
+void StoredServer::save_ad_cache(const QString& profileName, int userDays, const QString& userText, int srvDays, const QString& srvText)
+{
+    OcSettings settings;
+    settings.beginGroup(PREFIX + profileName);
+    settings.setValue("ad-user-expiry-days", userDays);
+    settings.setValue("ad-user-expiry-text", userText);
+    settings.setValue("ad-srv-expiry-days", srvDays);
+    settings.setValue("ad-srv-expiry-text", srvText);
+    settings.setValue("ad-last-checked", QDateTime::currentDateTime().toString(Qt::ISODate));
+    settings.endGroup();
+    settings.sync();
 }
 
 const QString& StoredServer::get_username() const

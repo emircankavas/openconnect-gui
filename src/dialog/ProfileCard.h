@@ -31,6 +31,14 @@ public:
     void setDns(const QString& dns);
     void setStats(const QString& dl, const QString& up);
     void setCipher(const QString& cipher);
+    void setAdSettings(bool enabled,
+                       const QString& domain,
+                       const QString& srvUser,
+                       const QString& userText = {},
+                       int userDays = -999,
+                       const QString& srvText = {},
+                       int srvDays = -999);
+    void setAdExpiryInfo(const QString& userText, int userDays, const QString& srvText, int srvDays);
 
     int status() const { return m_status; }
 
@@ -39,6 +47,7 @@ signals:
     void logsRequested();
     void editRequested();
     void deleteRequested();
+    void adRefreshRequested();
 
 protected:
     void contextMenuEvent(QContextMenuEvent* event) override;
@@ -58,6 +67,14 @@ private:
     int m_status;
     int m_iconIndex;
 
+    bool m_adEnabled;
+    QString m_adDomain;
+    QString m_adSrvUser;
+    QString m_adUserText;
+    int m_adUserDays;
+    QString m_adSrvText;
+    int m_adSrvDays;
+
     // UI Widgets
     QWidget* m_iconWidget;
     QLabel* m_titleLabel;
@@ -66,6 +83,10 @@ private:
 
     QLabel* m_protocolBadge;
     QLabel* m_cipherBadge;
+
+    QWidget* m_adWidget;
+    QLabel* m_adUserBadge;
+    QLabel* m_adSrvBadge;
 
     QLabel* m_dnsLabel;
     QLabel* m_statsLabel;

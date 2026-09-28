@@ -77,4 +77,8 @@ private:
     std::vector<win_cert_st> winCerts;
     StoredServer* ss;
     class QComboBox* m_iconComboBox = nullptr;
+    class QCheckBox* m_adEnableBox = nullptr;
+    class QLineEdit* m_adDomainEdit = nullptr;
+    class QLineEdit* m_adSrvUserEdit = nullptr;
+    class QLineEdit* m_adBaseDnEdit = nullptr;
 };

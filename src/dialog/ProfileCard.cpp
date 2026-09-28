@@ -56,6 +56,12 @@ ProfileCard::ProfileCard(const QString& profileName,
     , m_up(QStringLiteral("0B"))
     , m_status(STATUS_DISCONNECTED)
     , m_iconIndex(iconIndex)
+    , m_adEnabled(false)
+    , m_adUserDays(-999)
+    , m_adSrvDays(-999)
+    , m_adWidget(nullptr)
+    , m_adUserBadge(nullptr)
+    , m_adSrvBadge(nullptr)
 {
     setupUi();
     setConnectionStatus(STATUS_DISCONNECTED);
@@ -120,6 +126,23 @@ void ProfileCard::setupUi()
     badgesRow->addStretch();
 
     mainLayout->addLayout(badgesRow);
+
+    // --- AD PASSWORD EXPIRY ROW ---
+    m_adWidget = new QWidget(this);
+    QHBoxLayout* adLayout = new QHBoxLayout(m_adWidget);
+    adLayout->setContentsMargins(0, 0, 0, 0);
+    adLayout->setSpacing(8);
+
+    m_adUserBadge = new QLabel(m_adWidget);
+    m_adSrvBadge = new QLabel(m_adWidget);
+
+    adLayout->addWidget(m_adUserBadge);
+    adLayout->addWidget(m_adSrvBadge);
+    adLayout->addStretch();
+
+    m_adWidget->setLayout(adLayout);
+    m_adWidget->setVisible(false);
+    mainLayout->addWidget(m_adWidget);
 
 // Small server/DNS icon matching mockup
 class DnsIconWidget : public QWidget {
@@ -232,6 +255,92 @@ void ProfileCard::updateBadgeStyles()
     // DNS & Stats
     m_dnsLabel->setText(QString("DNS: %1").arg(m_dns.isEmpty() ? QStringLiteral("-") : m_dns));
     m_statsLabel->setText(QString("DL: %1  UP: %2").arg(m_dl, m_up));
+
+    // AD Password Expiry Badges
+    if (!m_adEnabled || !m_adWidget) {
+        if (m_adWidget) {
+            m_adWidget->setVisible(false);
+        }
+    } else {
+        m_adWidget->setVisible(true);
+
+        QString userDotColor = "#10b981"; // green
+        if (m_adUserDays == -999) {
+            userDotColor = "#64748b"; // gray
+        } else if (m_adUserDays < 0) {
+            userDotColor = "#ef4444"; // red
+        } else if (m_adUserDays <= 5) {
+            userDotColor = "#ef4444"; // red
+        } else if (m_adUserDays <= 15) {
+            userDotColor = "#f59e0b"; // amber
+        }
+
+        QString uText = m_adUserText.isEmpty() ? (m_status == STATUS_CONNECTED ? tr("Sorgulanıyor...") : tr("Bekleniyor...")) : m_adUserText;
+        m_adUserBadge->setText(QString("<span style='color:%1; font-size:13px;'>●</span> <span style='color:#94a3b8; font-weight:500;'>Şifre:</span> <span style='color:#e2e8f0; font-weight:600;'>%2</span>")
+            .arg(userDotColor, uText));
+        m_adUserBadge->setStyleSheet(
+            "background-color: #1b2330;"
+            "border: 1px solid #263346;"
+            "border-radius: 11px;"
+            "padding: 3px 10px;"
+            "font-size: 11px;"
+        );
+
+        if (!m_adSrvUser.isEmpty()) {
+            m_adSrvBadge->setVisible(true);
+            QString srvDotColor = "#10b981";
+            if (m_adSrvDays == -999) {
+                srvDotColor = "#64748b";
+            } else if (m_adSrvDays < 0) {
+                srvDotColor = "#ef4444";
+            } else if (m_adSrvDays <= 5) {
+                srvDotColor = "#ef4444";
+            } else if (m_adSrvDays <= 15) {
+                srvDotColor = "#f59e0b";
+            }
+
+            QString sText = m_adSrvText.isEmpty() ? (m_status == STATUS_CONNECTED ? tr("Sorgulanıyor...") : tr("Bekleniyor...")) : m_adSrvText;
+            m_adSrvBadge->setText(QString("<span style='color:%1; font-size:13px;'>●</span> <span style='color:#94a3b8; font-weight:500;'>SRV:</span> <span style='color:#e2e8f0; font-weight:600;'>%2</span>")
+                .arg(srvDotColor, sText));
+            m_adSrvBadge->setStyleSheet(
+                "background-color: #1b2330;"
+                "border: 1px solid #263346;"
+                "border-radius: 11px;"
+                "padding: 3px 10px;"
+                "font-size: 11px;"
+            );
+            m_adSrvBadge->setToolTip(tr("SRV Hesabı: %1").arg(m_adSrvUser));
+        } else {
+            m_adSrvBadge->setVisible(false);
+        }
+    }
+}
+
+void ProfileCard::setAdSettings(bool enabled,
+                                const QString& domain,
+                                const QString& srvUser,
+                                const QString& userText,
+                                int userDays,
+                                const QString& srvText,
+                                int srvDays)
+{
+    m_adEnabled = enabled;
+    m_adDomain = domain;
+    m_adSrvUser = srvUser;
+    m_adUserText = userText;
+    m_adUserDays = userDays;
+    m_adSrvText = srvText;
+    m_adSrvDays = srvDays;
+    updateBadgeStyles();
+}
+
+void ProfileCard::setAdExpiryInfo(const QString& userText, int userDays, const QString& srvText, int srvDays)
+{
+    m_adUserText = userText;
+    m_adUserDays = userDays;
+    m_adSrvText = srvText;
+    m_adSrvDays = srvDays;
+    updateBadgeStyles();
 }
 
 void ProfileCard::setConnectionStatus(int status)
@@ -307,6 +416,11 @@ void ProfileCard::contextMenuEvent(QContextMenuEvent* event)
         actConnect = menu.addAction(tr("Bağlan (Connect)"));
     }
 
+    QAction* actRefreshAd = nullptr;
+    if (m_adEnabled && m_status == STATUS_CONNECTED) {
+        actRefreshAd = menu.addAction(tr("AD Şifre Süresini Yenile"));
+    }
+
     menu.addSeparator();
 
     QAction* actCopyGw = menu.addAction(tr("Ağ Geçidini Kopyala"));
@@ -320,6 +434,8 @@ void ProfileCard::contextMenuEvent(QContextMenuEvent* event)
 
     if (selected == actConnect) {
         emit toggleRequested(m_status == STATUS_DISCONNECTED);
+    } else if (selected == actRefreshAd) {
+        emit adRefreshRequested();
     } else if (selected == actCopyGw) {
         QApplication::clipboard()->setText(m_gateway);
     } else if (selected == actEdit) {

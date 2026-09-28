@@ -28,6 +28,11 @@
 #include <QItemSelectionModel>
 #include <QListWidget>
 #include <QMessageBox>
+#include <QCheckBox>
+#include <QLineEdit>
+#include <QGroupBox>
+#include <QFormLayout>
+#include <QVBoxLayout>
 
 #ifdef USE_SYSTEM_KEYS
 extern "C" {
@@ -215,6 +220,43 @@ EditDialog::EditDialog(QString server, QWidget* parent)
     QString hash;
     ss->get_server_pin(hash);
     ui->serverCertHash->setText(hash);
+
+    // Active Directory Tab
+    QWidget* adTab = new QWidget(this);
+    QVBoxLayout* adLayout = new QVBoxLayout(adTab);
+    adLayout->setContentsMargins(16, 16, 16, 16);
+    adLayout->setSpacing(14);
+
+    m_adEnableBox = new QCheckBox(tr("Active Directory Şifre Takibini Etkinleştir"), adTab);
+    m_adEnableBox->setChecked(ss->get_ad_check_enabled());
+    adLayout->addWidget(m_adEnableBox);
+
+    QGroupBox* adGroupBox = new QGroupBox(tr("Active Directory Ayarları"), adTab);
+    QFormLayout* formLayout = new QFormLayout(adGroupBox);
+    formLayout->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
+
+    m_adDomainEdit = new QLineEdit(adGroupBox);
+    m_adDomainEdit->setPlaceholderText(tr("Örn: companyname.local"));
+    m_adDomainEdit->setText(ss->get_ad_domain());
+    formLayout->addRow(tr("Domain:"), m_adDomainEdit);
+
+    m_adSrvUserEdit = new QLineEdit(adGroupBox);
+    m_adSrvUserEdit->setPlaceholderText(tr("Örn: kullanici.srv (İsteğe bağlı)"));
+    m_adSrvUserEdit->setText(ss->get_ad_srv_user());
+    formLayout->addRow(tr("SRV Kullanıcısı:"), m_adSrvUserEdit);
+
+    m_adBaseDnEdit = new QLineEdit(adGroupBox);
+    m_adBaseDnEdit->setPlaceholderText(tr("Örn: dc=companyname,dc=local (Boş ise domain'den türetilir)"));
+    m_adBaseDnEdit->setText(ss->get_ad_base_dn());
+    formLayout->addRow(tr("Base DN:"), m_adBaseDnEdit);
+
+    adGroupBox->setEnabled(m_adEnableBox->isChecked());
+    connect(m_adEnableBox, &QCheckBox::toggled, adGroupBox, &QGroupBox::setEnabled);
+
+    adLayout->addWidget(adGroupBox);
+    adLayout->addStretch();
+
+    ui->settingsTabWidget->addTab(adTab, tr("Active Directory"));
 }
 
 EditDialog::~EditDialog()
@@ -325,6 +367,13 @@ void EditDialog::on_buttonBox_accepted()
 
     if (m_iconComboBox) {
         ss->set_icon_type(m_iconComboBox->currentData().toInt());
+    }
+
+    if (m_adEnableBox) {
+        ss->set_ad_check_enabled(m_adEnableBox->isChecked());
+        ss->set_ad_domain(m_adDomainEdit->text().trimmed());
+        ss->set_ad_srv_user(m_adSrvUserEdit->text().trimmed());
+        ss->set_ad_base_dn(m_adBaseDnEdit->text().trimmed());
     }
 
     ss->save();

@@ -37,6 +37,7 @@ set(${PROJECT_NAME}_SRCS
     logger.cpp
 
     FileLogger.cpp
+    AdPasswordChecker.cpp
     OcSettings.h
 )
 

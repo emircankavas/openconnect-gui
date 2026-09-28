@@ -16,3 +16,4 @@ _xxx/
 *.zip
 *.exe
 *.exe.sha512
+.DS_Store

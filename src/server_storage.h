@@ -117,6 +117,35 @@ public:
     int get_icon_type() const;
     void set_icon_type(const int icon_type);
 
+    bool get_ad_check_enabled() const { return m_ad_check_enabled; }
+    void set_ad_check_enabled(bool v) { m_ad_check_enabled = v; }
+
+    const QString& get_ad_domain() const { return m_ad_domain; }
+    void set_ad_domain(const QString& d) { m_ad_domain = d; }
+
+    const QString& get_ad_base_dn() const { return m_ad_base_dn; }
+    void set_ad_base_dn(const QString& dn) { m_ad_base_dn = dn; }
+
+    const QString& get_ad_srv_user() const { return m_ad_srv_user; }
+    void set_ad_srv_user(const QString& u) { m_ad_srv_user = u; }
+
+    int get_ad_user_expiry_days() const { return m_ad_user_expiry_days; }
+    void set_ad_user_expiry_days(int d) { m_ad_user_expiry_days = d; }
+
+    const QString& get_ad_user_expiry_text() const { return m_ad_user_expiry_text; }
+    void set_ad_user_expiry_text(const QString& t) { m_ad_user_expiry_text = t; }
+
+    int get_ad_srv_expiry_days() const { return m_ad_srv_expiry_days; }
+    void set_ad_srv_expiry_days(int d) { m_ad_srv_expiry_days = d; }
+
+    const QString& get_ad_srv_expiry_text() const { return m_ad_srv_expiry_text; }
+    void set_ad_srv_expiry_text(const QString& t) { m_ad_srv_expiry_text = t; }
+
+    const QString& get_ad_last_checked() const { return m_ad_last_checked; }
+    void set_ad_last_checked(const QString& t) { m_ad_last_checked = t; }
+
+    static void save_ad_cache(const QString& profileName, int userDays, const QString& userText, int srvDays, const QString& srvText);
+
 private:
     bool m_batch_mode;
     bool m_minimize_on_connect;
@@ -141,4 +170,14 @@ private:
     QString m_split_dns_domains;
     int m_log_level;
     int m_icon_type;
+
+    bool m_ad_check_enabled;
+    QString m_ad_domain;
+    QString m_ad_base_dn;
+    QString m_ad_srv_user;
+    int m_ad_user_expiry_days;
+    QString m_ad_user_expiry_text;
+    int m_ad_srv_expiry_days;
+    QString m_ad_srv_expiry_text;
+    QString m_ad_last_checked;
 };
