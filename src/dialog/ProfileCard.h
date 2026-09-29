@@ -9,12 +9,19 @@
 #include <QPushButton>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+#include <QPropertyAnimation>
 
 #include "ToggleSwitch.h"
 #include "ProfileIcons.h"
 
+class CardIconWidget;
+class CardMenuButton;
+class CipherLockWidget;
+class MetricsChip;
+
 class ProfileCard : public QFrame {
     Q_OBJECT
+    Q_PROPERTY(int metricsHeight READ metricsHeight WRITE setMetricsHeight)
 
 public:
     explicit ProfileCard(const QString& profileName,
@@ -42,6 +49,9 @@ public:
 
     int status() const { return m_status; }
 
+    int metricsHeight() const { return m_metricsHeight; }
+    void setMetricsHeight(int h);
+
 signals:
     void toggleRequested(bool connect);
     void logsRequested();
@@ -57,6 +67,11 @@ private slots:
     void onToggleClicked(bool checked);
 
 private:
+    void setupUi();
+    void updateBadgeStyles();
+    void showCardMenu(const QPoint& globalPos);
+    QString formatDays(const QString& text, int days) const;
+
     QString m_profileName;
     QString m_gateway;
     QString m_protocolName;
@@ -66,6 +81,7 @@ private:
     QString m_up;
     int m_status;
     int m_iconIndex;
+    int m_metricsHeight;
 
     bool m_adEnabled;
     QString m_adDomain;
@@ -76,23 +92,18 @@ private:
     int m_adSrvDays;
 
     // UI Widgets
-    QWidget* m_iconWidget;
+    CardIconWidget* m_iconWidget;
     QLabel* m_titleLabel;
-    QLabel* m_gatewayLabel;
-    ToggleSwitch* m_toggleSwitch;
-
+    QLabel* m_adLabel;
     QLabel* m_protocolBadge;
-    QLabel* m_cipherBadge;
+    ToggleSwitch* m_toggleSwitch;
+    CardMenuButton* m_menuButton;
 
-    QWidget* m_adWidget;
-    QLabel* m_adUserBadge;
-    QLabel* m_adSrvBadge;
-
+    // Expandable metrics container (chip style)
+    MetricsChip* m_metricsChip;
     QLabel* m_dnsLabel;
     QLabel* m_statsLabel;
-    QPushButton* m_logButton;
-
-    void setupUi();
-    void updateBadgeStyles();
+    CipherLockWidget* m_cipherLockWidget;
+    QPropertyAnimation* m_metricsAnim;
 };
 

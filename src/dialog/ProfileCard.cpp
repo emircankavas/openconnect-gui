@@ -5,20 +5,29 @@
 #include "ProfileCard.h"
 #include "mainwindow.h" // For status_t enum
 
+#include <QApplication>
+#include <QClipboard>
 #include <QContextMenuEvent>
+#include <QEasingCurve>
 #include <QMenu>
 #include <QPainter>
-#include <QPainterPath>
-#include <QClipboard>
-#include <QApplication>
+#include <QToolTip>
 
-// Custom widget to render the left icon inside a rounded square
+// Lightweight icon widget without heavy boxed background
 class CardIconWidget : public QWidget {
 public:
     CardIconWidget(int iconIndex, QWidget* parent = nullptr)
-        : QWidget(parent), m_index(iconIndex)
+        : QWidget(parent), m_index(iconIndex), m_connected(false)
     {
-        setFixedSize(44, 44);
+        setFixedSize(28, 28);
+    }
+
+    void setConnected(bool connected)
+    {
+        if (m_connected != connected) {
+            m_connected = connected;
+            update();
+        }
     }
 
 protected:
@@ -27,19 +36,150 @@ protected:
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing);
 
-        // Rounded container background
-        QRectF r(0, 0, width(), height());
-        p.setPen(Qt::NoPen);
-        p.setBrush(QColor("#1e2736"));
-        p.drawRoundedRect(r, 10, 10);
-
-        QRectF iconRect = r.adjusted(8, 8, -8, -8);
-        ProfileIcons::paint(p, m_index, iconRect, QColor("#a0b2c6"));
+        QRectF iconRect = rect().adjusted(1, 1, -1, -1);
+        ProfileIcons::paint(p, m_index, iconRect, m_connected ? QColor("#00d2d3") : QColor("#8494a8"));
     }
 
 private:
     int m_index;
+    bool m_connected;
 };
+
+// Custom modern 3-dot menu button
+class CardMenuButton : public QPushButton {
+public:
+    explicit CardMenuButton(QWidget* parent = nullptr) : QPushButton(parent)
+    {
+        setFixedSize(28, 28);
+        setCursor(Qt::PointingHandCursor);
+        setToolTip(tr("Seçenekler"));
+    }
+
+protected:
+    void paintEvent(QPaintEvent*) override
+    {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+
+        if (isDown()) {
+            p.setBrush(QColor("#151d27"));
+            p.setPen(QColor("#2c3b4e"));
+            p.drawRoundedRect(rect().adjusted(1, 1, -1, -1), 6, 6);
+        } else if (underMouse()) {
+            p.setBrush(QColor("#202b3a"));
+            p.setPen(QColor("#2c3b4e"));
+            p.drawRoundedRect(rect().adjusted(1, 1, -1, -1), 6, 6);
+        }
+
+        // Draw 3 vertical dots
+        p.setPen(Qt::NoPen);
+        p.setBrush(underMouse() ? QColor("#ffffff") : QColor("#8494a8"));
+        qreal cx = width() / 2.0;
+        qreal cy = height() / 2.0;
+        qreal r = 1.6;
+        p.drawEllipse(QPointF(cx, cy - 5.5), r, r);
+        p.drawEllipse(QPointF(cx, cy), r, r);
+        p.drawEllipse(QPointF(cx, cy + 5.5), r, r);
+    }
+};
+
+// Sleek padlock widget for cipher info with hover tooltip and click-to-copy
+class CipherLockWidget : public QWidget {
+public:
+    explicit CipherLockWidget(QWidget* parent = nullptr) : QWidget(parent)
+    {
+        setFixedSize(20, 20);
+        setCursor(Qt::PointingHandCursor);
+    }
+
+    void setCipher(const QString& cipher)
+    {
+        m_cipher = cipher;
+        setToolTip(tr("Şifreleme (Cipher):\n%1\n(Kopyalamak için tıklayın)").arg(m_cipher));
+    }
+
+protected:
+    void enterEvent(QEnterEvent*) override { update(); }
+    void leaveEvent(QEvent*) override { update(); }
+
+    void mousePressEvent(QMouseEvent* event) override
+    {
+        if (event->button() == Qt::LeftButton && !m_cipher.isEmpty()) {
+            QApplication::clipboard()->setText(m_cipher);
+            QToolTip::showText(mapToGlobal(QPoint(0, height())), tr("Şifreleme bilgisi kopyalandı!"), this);
+        }
+        QWidget::mousePressEvent(event);
+    }
+
+    void paintEvent(QPaintEvent*) override
+    {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+
+        if (underMouse()) {
+            p.setPen(QPen(QColor("#2c3c50"), 1));
+            p.setBrush(QColor("#1b2533"));
+            p.drawRoundedRect(rect().adjusted(1, 1, -1, -1), 4, 4);
+        }
+
+        // Draw padlock
+        QColor lockColor = underMouse() ? QColor("#38bdf8") : QColor("#8494a8");
+        p.setPen(QPen(lockColor, 1.3));
+        p.setBrush(Qt::NoBrush);
+
+        // Shackle
+        QRectF shackle(6, 3.5, 8, 7.5);
+        p.drawArc(shackle, 0, 180 * 16);
+        p.drawLine(QPointF(6, 7.5), QPointF(6, 9.5));
+        p.drawLine(QPointF(14, 7.5), QPointF(14, 9.5));
+
+        // Lock Body
+        p.setBrush(lockColor);
+        p.setPen(Qt::NoPen);
+        p.drawRoundedRect(QRectF(4.5, 9, 11, 7.5), 1.5, 1.5);
+
+        // Keyhole
+        p.setBrush(QColor("#0d121a"));
+        p.drawEllipse(QPointF(10, 11.8), 1.0, 1.0);
+        p.drawRect(QRectF(9.6, 11.8, 0.8, 2.0));
+    }
+
+private:
+    QString m_cipher;
+};
+
+// Subtle inner container / chip for active connection metrics
+class MetricsChip : public QFrame {
+public:
+    explicit MetricsChip(QWidget* parent = nullptr) : QFrame(parent)
+    {
+        setObjectName("metricsChip");
+        setStyleSheet(QStringLiteral(
+            "#metricsChip {"
+            "   background-color: #0c1118;"
+            "   border: 1px solid #1c2635;"
+            "   border-radius: 7px;"
+            "}"
+        ));
+    }
+
+protected:
+    void paintEvent(QPaintEvent* event) override
+    {
+        if (height() < 8) return;
+        QFrame::paintEvent(event);
+    }
+};
+
+static QString formatProtocolTag(const QString& proto)
+{
+    if (proto.contains(QStringLiteral("AnyConnect"), Qt::CaseInsensitive)) return QStringLiteral("AnyConnect");
+    if (proto.contains(QStringLiteral("Fortinet"), Qt::CaseInsensitive)) return QStringLiteral("Fortinet");
+    if (proto.contains(QStringLiteral("GlobalProtect"), Qt::CaseInsensitive)) return QStringLiteral("GlobalProtect");
+    if (proto.contains(QStringLiteral("Pulse"), Qt::CaseInsensitive)) return QStringLiteral("Pulse");
+    if (proto.contains(QStringLiteral("F5"), Qt::CaseInsensitive)) return QStringLiteral("F5");
+    return proto.isEmpty() ? QStringLiteral("AnyConnect") : proto;
+}
 
 ProfileCard::ProfileCard(const QString& profileName,
                          const QString& gateway,
@@ -56,12 +196,21 @@ ProfileCard::ProfileCard(const QString& profileName,
     , m_up(QStringLiteral("0B"))
     , m_status(STATUS_DISCONNECTED)
     , m_iconIndex(iconIndex)
+    , m_metricsHeight(0)
     , m_adEnabled(false)
     , m_adUserDays(-999)
     , m_adSrvDays(-999)
-    , m_adWidget(nullptr)
-    , m_adUserBadge(nullptr)
-    , m_adSrvBadge(nullptr)
+    , m_iconWidget(nullptr)
+    , m_titleLabel(nullptr)
+    , m_adLabel(nullptr)
+    , m_protocolBadge(nullptr)
+    , m_toggleSwitch(nullptr)
+    , m_menuButton(nullptr)
+    , m_metricsChip(nullptr)
+    , m_dnsLabel(nullptr)
+    , m_statsLabel(nullptr)
+    , m_cipherLockWidget(nullptr)
+    , m_metricsAnim(nullptr)
 {
     setupUi();
     setConnectionStatus(STATUS_DISCONNECTED);
@@ -70,249 +219,215 @@ ProfileCard::ProfileCard(const QString& profileName,
 void ProfileCard::setupUi()
 {
     setObjectName("profileCard");
-    setStyleSheet(QStringLiteral(
-        "#profileCard {"
-        "   background-color: #161c26;"
-        "   border: 1px solid #232d3d;"
-        "   border-radius: 12px;"
-        "}"
-        "#profileCard:hover {"
-        "   background-color: #18202c;"
-        "   border: 1px solid #2a374a;"
-        "}"
-    ));
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
 
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
-    mainLayout->setContentsMargins(18, 16, 18, 16);
-    mainLayout->setSpacing(12);
+    mainLayout->setContentsMargins(14, 9, 14, 9);
+    mainLayout->setSpacing(6);
 
-    // --- TOP ROW: Icon + Title & Gateway + Toggle Switch ---
+    // --- TOP ROW: [Icon] [Title + AD Expiry] ----- [Protocol Pill] [Toggle Switch] [⋮ Menu] ---
     QHBoxLayout* topRow = new QHBoxLayout();
-    topRow->setSpacing(14);
+    topRow->setContentsMargins(0, 0, 0, 0);
+    topRow->setSpacing(10);
 
+    // 1. Left: Pure crisp icon without heavy boxed background
     m_iconWidget = new CardIconWidget(m_iconIndex, this);
-    topRow->addWidget(m_iconWidget);
+    topRow->addWidget(m_iconWidget, 0, Qt::AlignVCenter);
 
+    // 2. Center-Left: Profile Name + AD Expiry (with calibrated vertical spacing)
     QVBoxLayout* titleBox = new QVBoxLayout();
-    titleBox->setSpacing(3);
+    titleBox->setContentsMargins(0, 0, 0, 0);
+    titleBox->setSpacing(4);
 
     m_titleLabel = new QLabel(m_profileName, this);
-    m_titleLabel->setStyleSheet("font-size: 16px; font-weight: bold; color: #ffffff;");
-
-    m_gatewayLabel = new QLabel(m_gateway, this);
-    m_gatewayLabel->setStyleSheet("font-size: 13px; color: #8494a8;");
-
+    m_titleLabel->setStyleSheet("font-size: 15px; font-weight: 600; color: #f8fafc;");
+    m_titleLabel->setToolTip(m_profileName);
     titleBox->addWidget(m_titleLabel);
-    titleBox->addWidget(m_gatewayLabel);
-    topRow->addLayout(titleBox);
 
-    topRow->addStretch();
+    m_adLabel = new QLabel(this);
+    m_adLabel->setStyleSheet("font-size: 11px; color: #8494a8;");
+    m_adLabel->setVisible(false);
+    titleBox->addWidget(m_adLabel);
+
+    topRow->addLayout(titleBox, 1);
+
+    // 3. Right: Fixed-alignment actions block (Protocol Badge | Switch | Menu)
+    // Locked in exact columns across all cards to eliminate zigzagging!
+    QHBoxLayout* rightBlock = new QHBoxLayout();
+    rightBlock->setContentsMargins(0, 0, 0, 0);
+    rightBlock->setSpacing(8);
+
+    m_protocolBadge = new QLabel(this);
+    m_protocolBadge->setFixedWidth(92);
+    m_protocolBadge->setAlignment(Qt::AlignCenter);
+    m_protocolBadge->setToolTip(m_protocolName);
+    rightBlock->addWidget(m_protocolBadge, 0, Qt::AlignVCenter);
 
     m_toggleSwitch = new ToggleSwitch(this);
     connect(m_toggleSwitch, &QAbstractButton::clicked, this, &ProfileCard::onToggleClicked);
-    topRow->addWidget(m_toggleSwitch);
+    rightBlock->addWidget(m_toggleSwitch, 0, Qt::AlignVCenter);
 
+    m_menuButton = new CardMenuButton(this);
+    connect(m_menuButton, &QPushButton::clicked, this, [this]() {
+        showCardMenu(m_menuButton->mapToGlobal(QPoint(0, m_menuButton->height() + 4)));
+    });
+    rightBlock->addWidget(m_menuButton, 0, Qt::AlignVCenter);
+
+    topRow->addLayout(rightBlock, 0);
     mainLayout->addLayout(topRow);
 
-    // --- MIDDLE ROW: Badges (Protocol + Cipher) ---
-    QHBoxLayout* badgesRow = new QHBoxLayout();
-    badgesRow->setSpacing(8);
+    // --- CONTEXT-AWARE EXPANDABLE METRICS CHIP (Inner container panel) ---
+    m_metricsChip = new MetricsChip(this);
+    m_metricsChip->setFixedHeight(0);
+    m_metricsChip->setVisible(false);
 
-    m_protocolBadge = new QLabel(this);
-    m_cipherBadge = new QLabel(this);
+    QHBoxLayout* chipLayout = new QHBoxLayout(m_metricsChip);
+    chipLayout->setContentsMargins(10, 4, 10, 4);
+    chipLayout->setSpacing(12);
 
-    badgesRow->addWidget(m_protocolBadge);
-    badgesRow->addWidget(m_cipherBadge);
-    badgesRow->addStretch();
+    m_dnsLabel = new QLabel(m_metricsChip);
+    m_dnsLabel->setStyleSheet("font-size: 11px; color: #8494a8; font-family: -apple-system, Menlo, monospace;");
+    chipLayout->addWidget(m_dnsLabel);
 
-    mainLayout->addLayout(badgesRow);
+    chipLayout->addStretch();
 
-    // --- AD PASSWORD EXPIRY ROW ---
-    m_adWidget = new QWidget(this);
-    QHBoxLayout* adLayout = new QHBoxLayout(m_adWidget);
-    adLayout->setContentsMargins(0, 0, 0, 0);
-    adLayout->setSpacing(8);
+    m_statsLabel = new QLabel(m_metricsChip);
+    m_statsLabel->setStyleSheet("font-size: 11px; color: #8494a8; font-family: -apple-system, Menlo, monospace;");
+    chipLayout->addWidget(m_statsLabel);
 
-    m_adUserBadge = new QLabel(m_adWidget);
-    m_adSrvBadge = new QLabel(m_adWidget);
+    m_cipherLockWidget = new CipherLockWidget(m_metricsChip);
+    m_cipherLockWidget->setCipher(m_cipher);
+    chipLayout->addWidget(m_cipherLockWidget);
 
-    adLayout->addWidget(m_adUserBadge);
-    adLayout->addWidget(m_adSrvBadge);
-    adLayout->addStretch();
+    mainLayout->addWidget(m_metricsChip);
 
-    m_adWidget->setLayout(adLayout);
-    m_adWidget->setVisible(false);
-    mainLayout->addWidget(m_adWidget);
-
-// Small server/DNS icon matching mockup
-class DnsIconWidget : public QWidget {
-public:
-    explicit DnsIconWidget(QWidget* parent = nullptr) : QWidget(parent)
-    {
-        setFixedSize(18, 14);
-    }
-protected:
-    void paintEvent(QPaintEvent*) override
-    {
-        QPainter p(this);
-        p.setRenderHint(QPainter::Antialiasing);
-        p.setPen(QPen(QColor("#8494a8"), 1.2));
-        p.setBrush(Qt::NoBrush);
-
-        p.drawRoundedRect(QRectF(1, 1, 16, 5), 1, 1);
-        p.drawRoundedRect(QRectF(1, 8, 16, 5), 1, 1);
-
-        p.setPen(Qt::NoPen);
-        p.setBrush(QColor("#8494a8"));
-        p.drawEllipse(QPointF(4, 3.5), 1, 1);
-        p.drawEllipse(QPointF(4, 10.5), 1, 1);
-    }
-};
-
-    // --- BOTTOM ROW: DNS + DL/UP stats + Loglar button ---
-    QHBoxLayout* bottomRow = new QHBoxLayout();
-    bottomRow->setSpacing(8);
-
-    DnsIconWidget* dnsIcon = new DnsIconWidget(this);
-    bottomRow->addWidget(dnsIcon);
-
-    m_dnsLabel = new QLabel(this);
-    m_dnsLabel->setStyleSheet("font-size: 12px; color: #8494a8; font-family: monospace, menlo, sans-serif;");
-    bottomRow->addWidget(m_dnsLabel);
-
-    bottomRow->addStretch();
-
-    m_statsLabel = new QLabel(this);
-    m_statsLabel->setStyleSheet("font-size: 12px; color: #8494a8; font-family: monospace, menlo, sans-serif;");
-    bottomRow->addWidget(m_statsLabel);
-
-    bottomRow->addSpacing(8);
-
-    m_logButton = new QPushButton(tr(">_ Loglar"), this);
-    m_logButton->setCursor(Qt::PointingHandCursor);
-    m_logButton->setFixedHeight(28);
-    m_logButton->setStyleSheet(
-        "QPushButton {"
-        "   background-color: #1a222f;"
-        "   border: 1px solid #2b3648;"
-        "   border-radius: 6px;"
-        "   color: #c3d1e4;"
-        "   font-size: 12px;"
-        "   font-weight: 500;"
-        "   padding: 4px 14px;"
-        "}"
-        "QPushButton:hover {"
-        "   background-color: #242f40;"
-        "   border: 1px solid #3b4b63;"
-        "   color: #ffffff;"
-        "}"
-        "QPushButton:pressed {"
-        "   background-color: #151b26;"
-        "}"
-    );
-    connect(m_logButton, &QPushButton::clicked, this, &ProfileCard::logsRequested);
-    bottomRow->addWidget(m_logButton);
-
-    mainLayout->addLayout(bottomRow);
+    m_metricsAnim = new QPropertyAnimation(this, "metricsHeight", this);
+    m_metricsAnim->setDuration(220);
 
     updateBadgeStyles();
 }
 
+void ProfileCard::setMetricsHeight(int h)
+{
+    m_metricsHeight = h;
+    if (m_metricsChip) {
+        m_metricsChip->setFixedHeight(h);
+        m_metricsChip->setVisible(h > 0);
+    }
+}
+
+QString ProfileCard::formatDays(const QString& text, int days) const
+{
+    if (days == -999) {
+        return text.isEmpty() ? tr("Bekleniyor...") : text;
+    }
+    if (days < 0) {
+        return tr("Doldu!");
+    }
+    return QString("%1g").arg(days);
+}
+
 void ProfileCard::updateBadgeStyles()
 {
-    QString protoDotColor = "#475569";
+    // Update card border & background depending on connection status
+    if (m_status == STATUS_CONNECTED) {
+        setStyleSheet(QStringLiteral(
+            "#profileCard {"
+            "   background-color: #141c26;"
+            "   border: 1px solid #1d3946;"
+            "   border-radius: 12px;"
+            "}"
+            "#profileCard:hover {"
+            "   background-color: #17212e;"
+            "   border: 1px solid #264e5e;"
+            "}"
+        ));
+    } else {
+        setStyleSheet(QStringLiteral(
+            "#profileCard {"
+            "   background-color: #151b24;"
+            "   border: 1px solid #202a38;"
+            "   border-radius: 12px;"
+            "}"
+            "#profileCard:hover {"
+            "   background-color: #18202b;"
+            "   border: 1px solid #283546;"
+            "}"
+        ));
+    }
+
+    // Protocol badge styling
+    QString protoDotColor = "#64748b";
     QString protoTextColor = "#94a3b8";
 
     if (m_status == STATUS_CONNECTED) {
-        protoDotColor = "#00d2d3";
-        protoTextColor = "#00d2d3";
+        protoDotColor = "#10b981";
+        protoTextColor = "#34d399";
     } else if (m_status == STATUS_CONNECTING || m_status == STATUS_DISCONNECTING) {
         protoDotColor = "#f59e0b";
         protoTextColor = "#fcd34d";
     }
 
-    QString displayProto = m_protocolName.isEmpty() ? QStringLiteral("Cisco AnyConnect") : m_protocolName;
-    m_protocolBadge->setText(QString("<span style='color:%1; font-size:14px;'>●</span> <span style='color:%2; font-weight:500;'>%3</span>")
+    QString displayProto = formatProtocolTag(m_protocolName);
+    m_protocolBadge->setText(QString("<span style='color:%1; font-size:10px;'>●</span> <span style='color:%2; font-weight:500;'>%3</span>")
         .arg(protoDotColor, protoTextColor, displayProto));
     m_protocolBadge->setStyleSheet(
-        "background-color: #1b2330;"
-        "border: 1px solid #263346;"
-        "border-radius: 11px;"
-        "padding: 3px 10px;"
+        "background-color: #1a222e;"
+        "border: 1px solid #263345;"
+        "border-radius: 8px;"
+        "padding: 2px 4px;"
         "font-size: 11px;"
     );
 
-    QString displayCipher = m_cipher.isEmpty() ? QStringLiteral("AES-256-GCM") : m_cipher;
-    m_cipherBadge->setText(QString("<span style='color:#94a3b8; font-weight:500;'>%1</span>").arg(displayCipher));
-    m_cipherBadge->setStyleSheet(
-        "background-color: #1b2330;"
-        "border: 1px solid #263346;"
-        "border-radius: 11px;"
-        "padding: 3px 10px;"
-        "font-size: 11px;"
-    );
+    // DNS & Traffic Metrics inside the inner chip
+    m_dnsLabel->setText(QString("<span style='color:#64748b;'>DNS</span> <span style='color:#cbd5e1;'>%1</span>")
+        .arg(m_dns.isEmpty() ? QStringLiteral("-") : m_dns));
 
-    // DNS & Stats
-    m_dnsLabel->setText(QString("DNS: %1").arg(m_dns.isEmpty() ? QStringLiteral("-") : m_dns));
-    m_statsLabel->setText(QString("DL: %1  UP: %2").arg(m_dl, m_up));
+    m_statsLabel->setText(QString("<span style='color:#38bdf8; font-weight:bold;'>↓</span> <span style='color:#cbd5e1;'>%1</span>   <span style='color:#34d399; font-weight:bold;'>↑</span> <span style='color:#cbd5e1;'>%2</span>")
+        .arg(m_dl, m_up));
 
-    // AD Password Expiry Badges
-    if (!m_adEnabled || !m_adWidget) {
-        if (m_adWidget) {
-            m_adWidget->setVisible(false);
-        }
+    if (m_cipherLockWidget) {
+        m_cipherLockWidget->setCipher(m_cipher);
+    }
+
+    // AD Password Expiry (Clean secondary line below title)
+    if (!m_adEnabled) {
+        m_adLabel->setVisible(false);
     } else {
-        m_adWidget->setVisible(true);
+        m_adLabel->setVisible(true);
 
-        QString userDotColor = "#10b981"; // green
-        if (m_adUserDays == -999) {
-            userDotColor = "#64748b"; // gray
-        } else if (m_adUserDays < 0) {
-            userDotColor = "#ef4444"; // red
-        } else if (m_adUserDays <= 5) {
-            userDotColor = "#ef4444"; // red
-        } else if (m_adUserDays <= 15) {
-            userDotColor = "#f59e0b"; // amber
+        QString uFormatted = formatDays(m_adUserText, m_adUserDays);
+        QString uColor = "#94a3b8";
+        if (m_adUserDays >= 0 && m_adUserDays <= 5) {
+            uColor = "#ef4444";
+        } else if (m_adUserDays >= 0 && m_adUserDays <= 15) {
+            uColor = "#f59e0b";
         }
 
-        QString uText = m_adUserText.isEmpty() ? (m_status == STATUS_CONNECTED ? tr("Sorgulanıyor...") : tr("Bekleniyor...")) : m_adUserText;
-        m_adUserBadge->setText(QString("<span style='color:%1; font-size:13px;'>●</span> <span style='color:#94a3b8; font-weight:500;'>Şifre:</span> <span style='color:#e2e8f0; font-weight:600;'>%2</span>")
-            .arg(userDotColor, uText));
-        m_adUserBadge->setStyleSheet(
-            "background-color: #1b2330;"
-            "border: 1px solid #263346;"
-            "border-radius: 11px;"
-            "padding: 3px 10px;"
-            "font-size: 11px;"
-        );
-
+        QString lineText;
         if (!m_adSrvUser.isEmpty()) {
-            m_adSrvBadge->setVisible(true);
-            QString srvDotColor = "#10b981";
-            if (m_adSrvDays == -999) {
-                srvDotColor = "#64748b";
-            } else if (m_adSrvDays < 0) {
-                srvDotColor = "#ef4444";
-            } else if (m_adSrvDays <= 5) {
-                srvDotColor = "#ef4444";
-            } else if (m_adSrvDays <= 15) {
-                srvDotColor = "#f59e0b";
+            QString sFormatted = formatDays(m_adSrvText, m_adSrvDays);
+            QString sColor = "#94a3b8";
+            if (m_adSrvDays >= 0 && m_adSrvDays <= 5) {
+                sColor = "#ef4444";
+            } else if (m_adSrvDays >= 0 && m_adSrvDays <= 15) {
+                sColor = "#f59e0b";
             }
 
-            QString sText = m_adSrvText.isEmpty() ? (m_status == STATUS_CONNECTED ? tr("Sorgulanıyor...") : tr("Bekleniyor...")) : m_adSrvText;
-            m_adSrvBadge->setText(QString("<span style='color:%1; font-size:13px;'>●</span> <span style='color:#94a3b8; font-weight:500;'>SRV:</span> <span style='color:#e2e8f0; font-weight:600;'>%2</span>")
-                .arg(srvDotColor, sText));
-            m_adSrvBadge->setStyleSheet(
-                "background-color: #1b2330;"
-                "border: 1px solid #263346;"
-                "border-radius: 11px;"
-                "padding: 3px 10px;"
-                "font-size: 11px;"
-            );
-            m_adSrvBadge->setToolTip(tr("SRV Hesabı: %1").arg(m_adSrvUser));
+            lineText = QString(
+                "<span style='color:#64748b; font-weight:500;'>%1</span> "
+                "<span style='color:%2; font-weight:600;'>VPN %3</span> "
+                "<span style='color:#475569;'>•</span> "
+                "<span style='color:%4; font-weight:600;'>SRV %5</span>"
+            ).arg(tr("Kalan:"), uColor, uFormatted, sColor, sFormatted);
         } else {
-            m_adSrvBadge->setVisible(false);
+            lineText = QString(
+                "<span style='color:#64748b; font-weight:500;'>%1</span> "
+                "<span style='color:%2; font-weight:600;'>VPN %3</span>"
+            ).arg(tr("Kalan:"), uColor, uFormatted);
         }
+
+        m_adLabel->setText(lineText);
     }
 }
 
@@ -347,17 +462,50 @@ void ProfileCard::setConnectionStatus(int status)
 {
     m_status = status;
 
+    if (m_iconWidget) {
+        m_iconWidget->setConnected(status == STATUS_CONNECTED);
+    }
+
     if (status == STATUS_CONNECTED) {
         m_toggleSwitch->setCheckedSilent(true);
         m_toggleSwitch->setConnecting(false);
+
+        // Expand metrics chip with smooth animation
+        if (!isVisible()) {
+            setMetricsHeight(30);
+        } else {
+            m_metricsAnim->stop();
+            m_metricsAnim->setStartValue(m_metricsHeight);
+            m_metricsAnim->setEndValue(30);
+            m_metricsAnim->setEasingCurve(QEasingCurve::OutCubic);
+            m_metricsAnim->start();
+        }
     } else if (status == STATUS_CONNECTING || status == STATUS_DISCONNECTING) {
         m_toggleSwitch->setCheckedSilent(status == STATUS_CONNECTING);
         m_toggleSwitch->setConnecting(true);
+
+        // Collapse metrics chip
+        if (m_metricsHeight > 0) {
+            m_metricsAnim->stop();
+            m_metricsAnim->setStartValue(m_metricsHeight);
+            m_metricsAnim->setEndValue(0);
+            m_metricsAnim->setEasingCurve(QEasingCurve::InCubic);
+            m_metricsAnim->start();
+        }
     } else {
         m_toggleSwitch->setCheckedSilent(false);
         m_toggleSwitch->setConnecting(false);
         m_dl = QStringLiteral("0B");
         m_up = QStringLiteral("0B");
+
+        // Collapse metrics chip
+        if (m_metricsHeight > 0) {
+            m_metricsAnim->stop();
+            m_metricsAnim->setStartValue(m_metricsHeight);
+            m_metricsAnim->setEndValue(0);
+            m_metricsAnim->setEasingCurve(QEasingCurve::InCubic);
+            m_metricsAnim->start();
+        }
     }
 
     updateBadgeStyles();
@@ -389,32 +537,45 @@ void ProfileCard::onToggleClicked(bool checked)
     emit toggleRequested(checked);
 }
 
-void ProfileCard::contextMenuEvent(QContextMenuEvent* event)
+void ProfileCard::showCardMenu(const QPoint& globalPos)
 {
-    QMenu menu;
+    QMenu menu(this);
     menu.setStyleSheet(
         "QMenu {"
         "   background-color: #1a222f;"
-        "   border: 1px solid #2c3a4f;"
+        "   border: 1px solid #2d3b4e;"
+        "   border-radius: 8px;"
         "   color: #e2e8f0;"
         "   padding: 5px;"
         "}"
         "QMenu::item {"
-        "   padding: 6px 20px;"
-        "   border-radius: 4px;"
+        "   padding: 6px 22px 6px 14px;"
+        "   border-radius: 5px;"
+        "   font-size: 13px;"
         "}"
         "QMenu::item:selected {"
-        "   background-color: #2b384c;"
+        "   background-color: #2b3a4f;"
         "   color: #ffffff;"
+        "}"
+        "QMenu::separator {"
+        "   height: 1px;"
+        "   background: #283548;"
+        "   margin: 4px 6px;"
         "}"
     );
 
     QAction* actConnect = nullptr;
     if (m_status == STATUS_CONNECTED) {
-        actConnect = menu.addAction(tr("Bağlantıyı Kes (Disconnect)"));
+        actConnect = menu.addAction(tr("Bağlantıyı Kes"));
     } else if (m_status == STATUS_DISCONNECTED) {
-        actConnect = menu.addAction(tr("Bağlan (Connect)"));
+        actConnect = menu.addAction(tr("Bağlan"));
     }
+
+    menu.addSeparator();
+
+    QAction* actEdit = menu.addAction(tr("Profili Düzenle"));
+    QAction* actLogs = menu.addAction(tr("Logları Görüntüle"));
+    QAction* actCopyGw = menu.addAction(tr("Ağ Geçidini Kopyala"));
 
     QAction* actRefreshAd = nullptr;
     if (m_adEnabled && m_status == STATUS_CONNECTED) {
@@ -422,27 +583,31 @@ void ProfileCard::contextMenuEvent(QContextMenuEvent* event)
     }
 
     menu.addSeparator();
-
-    QAction* actCopyGw = menu.addAction(tr("Ağ Geçidini Kopyala"));
-    QAction* actEdit = menu.addAction(tr("Profili Düzenle"));
     QAction* actDelete = menu.addAction(tr("Profili Sil"));
 
-    QAction* selected = menu.exec(event->globalPos());
+    QAction* selected = menu.exec(globalPos);
     if (!selected) {
         return;
     }
 
     if (selected == actConnect) {
         emit toggleRequested(m_status == STATUS_DISCONNECTED);
-    } else if (selected == actRefreshAd) {
-        emit adRefreshRequested();
-    } else if (selected == actCopyGw) {
-        QApplication::clipboard()->setText(m_gateway);
     } else if (selected == actEdit) {
         emit editRequested();
+    } else if (selected == actLogs) {
+        emit logsRequested();
+    } else if (selected == actCopyGw) {
+        QApplication::clipboard()->setText(m_gateway);
+    } else if (selected == actRefreshAd) {
+        emit adRefreshRequested();
     } else if (selected == actDelete) {
         emit deleteRequested();
     }
+}
+
+void ProfileCard::contextMenuEvent(QContextMenuEvent* event)
+{
+    showCardMenu(event->globalPos());
 }
 
 void ProfileCard::paintEvent(QPaintEvent* event)

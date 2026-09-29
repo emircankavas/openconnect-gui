@@ -38,8 +38,9 @@
 #include <QHBoxLayout>
 #include <QPainter>
 #include <QLabel>
-#include <QPushButton>
 #include <QThread>
+
+
 
 extern "C" {
 #include <gnutls/gnutls.h>
@@ -620,8 +621,11 @@ void MainWindow::setupDashboardUi()
         "}"
     );
 
-    resize(580, 680);
-    setMinimumSize(480, 450);
+    setFixedSize(560, 680);
+    if (ui->statusBar) {
+        ui->statusBar->setSizeGripEnabled(false);
+        ui->statusBar->hide();
+    }
 
     delete ui->centralWidget->layout();
     QVBoxLayout* centralLayout = new QVBoxLayout(ui->centralWidget);
@@ -683,14 +687,18 @@ void MainWindow::setupDashboardUi()
     m_scrollArea = new QScrollArea(this);
     m_scrollArea->setWidgetResizable(true);
     m_scrollArea->setFrameShape(QFrame::NoFrame);
+    m_scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_scrollArea->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     m_scrollArea->setStyleSheet("background: transparent; border: none;");
 
     m_cardsContainer = new QWidget();
     m_cardsContainer->setStyleSheet("background: transparent;");
+    m_cardsContainer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
 
     m_cardsLayout = new QVBoxLayout(m_cardsContainer);
     m_cardsLayout->setContentsMargins(0, 0, 4, 0);
-    m_cardsLayout->setSpacing(14);
+    m_cardsLayout->setSpacing(10);
 
     m_emptyStateLabel = new QLabel(tr("Kayıtlı VPN profili bulunamadı.\nYukarıdaki '+ Profil Ekle' butonuna tıklayarak profil oluşturabilirsiniz."), m_cardsContainer);
     m_emptyStateLabel->setAlignment(Qt::AlignCenter);
@@ -701,7 +709,7 @@ void MainWindow::setupDashboardUi()
     m_cardsLayout->addStretch();
 
     m_scrollArea->setWidget(m_cardsContainer);
-    centralLayout->addWidget(m_scrollArea);
+    centralLayout->addWidget(m_scrollArea, 1);
 }
 
 #define PREFIX "server:"
@@ -1408,6 +1416,7 @@ void MainWindow::readSettings()
     if (settings.contains("geometry")) {
         restoreGeometry(settings.value("geometry").toByteArray());
     }
+    setFixedSize(560, 680);
 
     //remove old settings if they exist
     if (settings.contains("size")) {
