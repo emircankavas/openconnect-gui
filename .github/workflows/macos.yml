@@ -1,0 +1,145 @@
+name: macOS Build (arm64)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  BUILD_TYPE: Release
+  DEPLOYMENT_TARGET: "12.0"
+
+jobs:
+  build-macos-arm64:
+    name: Build macOS arm64 .app
+    runs-on: macos-26
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Runner info
+        run: |
+          sw_vers
+          uname -m
+          xcodebuild -version
+
+      - name: Cache Homebrew downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/Homebrew/downloads
+          key: brew-${{ runner.os }}-${{ runner.arch }}-qt6-openconnect-${{ hashFiles('.github/workflows/macos.yml') }}
+          restore-keys: |
+            brew-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Install dependencies (Homebrew)
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
+          HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: 1
+        run: |
+          brew install cmake pkg-config qt@6 openconnect gnutls spdlog fmt
+
+      - name: Resolve Qt prefix
+        id: qt
+        run: |
+          set -euo pipefail
+          QT_PREFIX="$(brew --prefix qt@6 2>/dev/null || brew --prefix qt6 2>/dev/null || brew --prefix qt)"
+          echo "Qt prefix: $QT_PREFIX"
+          test -d "$QT_PREFIX/lib/cmake/Qt6"
+          echo "prefix=$QT_PREFIX" >> "$GITHUB_OUTPUT"
+
+      - name: Configure (CMake)
+        run: |
+          set -euo pipefail
+          cmake -B build -S . \
+            -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="${DEPLOYMENT_TARGET}" \
+            -DQt6_DIR="${{ steps.qt.outputs.prefix }}/lib/cmake/Qt6"
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          cmake --build build --config "${BUILD_TYPE}" --parallel "$(sysctl -n hw.ncpu)"
+
+      - name: Install / bundle (fixup_bundle -> standalone .app)
+        continue-on-error: true
+        run: |
+          cmake --install build --prefix dist --config "${BUILD_TYPE}"
+
+      - name: Locate .app bundle
+        id: app
+        run: |
+          set -euo pipefail
+          APP_PATH=""
+          if [ -d "dist/OpenConnect-GUI.app" ]; then
+            APP_PATH="dist/OpenConnect-GUI.app"
+          else
+            APP_PATH="$(find build dist -maxdepth 4 -name '*.app' -type d 2>/dev/null | head -n1 || true)"
+          fi
+          if [ -z "$APP_PATH" ]; then
+            echo "::error::No .app bundle was produced"
+            find build dist -name '*.app' 2>/dev/null || true
+            exit 1
+          fi
+          echo "Found bundle: $APP_PATH"
+          du -sh "$APP_PATH"
+          echo "path=$APP_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Ad-hoc codesign
+        run: |
+          set -euo pipefail
+          APP="${{ steps.app.outputs.path }}"
+          codesign --force --deep --sign - "$APP"
+          codesign --verify --verbose=2 "$APP" || true
+
+      - name: Diagnose binary + linked libs
+        run: |
+          set -euo pipefail
+          APP="${{ steps.app.outputs.path }}"
+          BIN="$APP/Contents/MacOS/OpenConnect-GUI"
+          echo "== arch =="
+          file "$BIN" || true
+          lipo -info "$BIN" || true
+          echo "== linked libraries =="
+          otool -L "$BIN" || true
+          echo "== bundle plugins =="
+          ls -R "$APP/Contents/PlugIns" 2>/dev/null || echo "(no PlugIns dir)"
+
+      - name: Zip .app
+        run: |
+          set -euo pipefail
+          APP="${{ steps.app.outputs.path }}"
+          APP_DIR="$(dirname "$APP")"
+          APP_NAME="$(basename "$APP")"
+          OUT="OpenConnect-GUI-macos-arm64.zip"
+          ( cd "$APP_DIR" && ditto -c -k --sequesterRsrc --keepParent "$APP_NAME" "$GITHUB_WORKSPACE/$OUT" )
+          ls -lh "$GITHUB_WORKSPACE/$OUT"
+          echo "ARTIFACT_FILE=$OUT" >> "$GITHUB_ENV"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenConnect-GUI-macos-arm64
+          path: ${{ env.ARTIFACT_FILE }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Summary
+        run: |
+          {
+            echo "### macOS arm64 build"
+            echo ""
+            echo "- Bundle: \`${{ steps.app.outputs.path }}\`"
+            echo "- Artifact: \`${{ env.ARTIFACT_FILE }}\`"
+            echo "- Deployment target: ${DEPLOYMENT_TARGET}"
+          } >> "$GITHUB_STEP_SUMMARY"
