@@ -167,14 +167,18 @@ while [ "$progress" -eq 1 ]; do
       if [ ! -e "$target" ]; then
         echo "   + ${target#$FW/}  <- $abs"
         mkdir -p "$(dirname "$target")"
+        # Replace any pre-existing (possibly dangling) symlink with real content.
+        rm -rf "$target" 2>/dev/null || true
         case "$abs" in
           *.framework/*)
             fw_src="$(printf '%s\n' "$abs" | sed -n 's|\(.*\.framework\)/.*|\1|p')"
-            cp -Rf "$fw_src" "$FW/"
+            # -L: /opt/homebrew/lib/<X>.framework is itself a symlink into
+            # Cellar; copying it without dereferencing ships a broken link.
+            cp -RfL "$fw_src" "$FW/"
             chmod -R u+w "$target" 2>/dev/null || true
             ;;
           *)
-            cp -f "$abs" "$target"
+            cp -fL "$abs" "$target"
             chmod u+w "$target"
             ;;
         esac

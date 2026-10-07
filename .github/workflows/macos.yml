@@ -180,12 +180,15 @@ jobs:
           fi
 
           echo "== symlinks escaping the bundle? (plugins must be real files) =="
+          APP_ABS="$(cd "$(dirname "$APP")" && pwd -P)/$(basename "$APP")"
           while IFS= read -r -d '' l; do
-            real="$(readlink -f "$l" 2>/dev/null || true)"
+            link_target="$(readlink "$l")"
+            cur="$(cd "$(dirname "$l")" && pwd -P)"
+            real="$(cd "$cur" 2>/dev/null && readlink -f "$link_target" 2>/dev/null || true)"
             if [ -z "$real" ] || [ ! -e "$real" ]; then
-              echo "::error::broken symlink ${l#$APP/} -> $(readlink "$l")"
+              echo "::error::broken symlink ${l#$APP/} -> $link_target"
               fail=1
-            elif [ "${real#$APP/}" = "$real" ]; then
+            elif [ "${real#$APP_ABS/}" = "$real" ]; then
               echo "::error::symlink escapes bundle: ${l#$APP/} -> $real"
               fail=1
             fi
