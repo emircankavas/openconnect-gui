@@ -1,14 +1,20 @@
-name: macOS Build (arm64)
+name: macOS Build & Release (arm64)
 
 on:
   push:
     branches: [ main ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Create a release with this tag (e.g. v1.6.3). Leave empty to only build.'
+        required: false
+        default: ''
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   BUILD_TYPE: Release
@@ -234,4 +240,114 @@ jobs:
             echo "- Bundle: \`${{ steps.app.outputs.path }}\`"
             echo "- Artifact: \`${{ env.ARTIFACT_FILE }}\`"
             echo "- Deployment target: ${DEPLOYMENT_TARGET}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    name: Publish release
+    needs: build-macos-arm64
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download built artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: OpenConnect-GUI-macos-arm64
+          path: dist
+
+      - name: Resolve release tag and name
+        id: rel
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ -n "${{ inputs.release_tag }}" ]; then
+            TAG="${{ inputs.release_tag }}"
+            TITLE="${{ inputs.release_tag }} (macOS arm64)"
+            PRERELEASE="false"
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            TAG="${GITHUB_REF_NAME}"
+            TITLE="${GITHUB_REF_NAME} (macOS arm64)"
+            PRERELEASE="false"
+          else
+            # rolling release tracking the tip of main
+            TAG="continuous"
+            TITLE="Continuous build (macOS arm64)"
+            PRERELEASE="true"
+          fi
+          echo "tag=$TAG"           >> "$GITHUB_OUTPUT"
+          echo "title=$TITLE"       >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "Resolved: tag=$TAG prerelease=$PRERELEASE"
+
+      - name: Sanity-check artifact
+        run: |
+          set -euo pipefail
+          ls -lh dist
+          test -f dist/OpenConnect-GUI-macos-arm64.zip
+          # guard against publishing the tiny, non-embedded bundle
+          MIN=$((20 * 1024 * 1024))
+          SIZE=$(stat -c%s dist/OpenConnect-GUI-macos-arm64.zip)
+          echo "zip size: $SIZE bytes"
+          if [ "$SIZE" -lt "$MIN" ]; then
+            echo "::error::Artifact is only $SIZE bytes (<20MB); refusing to publish a non-standalone bundle"
+            exit 1
+          fi
+
+      - name: Create / update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.rel.outputs.tag }}"
+          TITLE="${{ steps.rel.outputs.title }}"
+          PRE="${{ steps.rel.outputs.prerelease }}"
+          SHORT="${GITHUB_SHA::7}"
+          REF="${GITHUB_REF_NAME}"
+
+          cat > /tmp/notes.raw <<EOF
+          macOS arm64 build of OpenConnect-GUI, auto-published from \`${SHORT}\` on \`${REF}\`.
+
+          ### Install
+          \`\`\`bash
+          unzip OpenConnect-GUI-macos-arm64.zip
+          xattr -dr com.apple.quarantine OpenConnect-GUI.app   # clear Gatekeeper
+          sudo OpenConnect-GUI.app/Contents/MacOS/OpenConnect-GUI
+          \`\`\`
+
+          > Unsigned build: right-click the app -> Open the first time, or run the
+          > \`xattr\` line above. Requires macOS 12+ on Apple Silicon.
+          EOF
+          # strip the YAML block-scalar indentation so markdown renders correctly
+          sed 's/^          //' /tmp/notes.raw > /tmp/notes.md
+          cat /tmp/notes.md
+
+          if [ "$TAG" = "continuous" ]; then
+            # Rolling release: recreate so the tag follows the tip of main.
+            gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+            gh release create "$TAG" dist/OpenConnect-GUI-macos-arm64.zip \
+              --target "$GITHUB_SHA" \
+              --title "$TITLE" --notes-file /tmp/notes.md --prerelease
+          elif gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG exists — refreshing asset"
+            gh release upload "$TAG" dist/OpenConnect-GUI-macos-arm64.zip --clobber
+            gh release edit "$TAG" --title "$TITLE" --notes-file /tmp/notes.md --prerelease="$PRE"
+          else
+            echo "Creating release $TAG"
+            gh release create "$TAG" dist/OpenConnect-GUI-macos-arm64.zip \
+              --target "$GITHUB_SHA" \
+              --title "$TITLE" --notes-file /tmp/notes.md --prerelease="$PRE"
+          fi
+
+          gh release view "$TAG" --json tagName,name,isPrerelease,assets
+
+      - name: Release summary
+        run: |
+          {
+            echo "### Release"
+            echo ""
+            echo "- Tag: \`${{ steps.rel.outputs.tag }}\`"
+            echo "- Prerelease: \`${{ steps.rel.outputs.prerelease }}\`"
+            echo "- Asset: \`OpenConnect-GUI-macos-arm64.zip\`"
           } >> "$GITHUB_STEP_SUMMARY"
