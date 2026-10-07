@@ -71,10 +71,17 @@ jobs:
           set -euo pipefail
           cmake --build build --config "${BUILD_TYPE}" --parallel "$(sysctl -n hw.ncpu)"
 
-      - name: Install / bundle (fixup_bundle -> standalone .app)
-        continue-on-error: true
+      - name: Install bundle (CMake install, no fixup_bundle)
+        # The project's own fixup_bundle step is broken (install() uses the
+        # lowercase ${PROJECT_NAME} while OUTPUT_NAME makes the bundle
+        # "OpenConnect-GUI.app", so it otool's a bundle that does not exist).
+        # Install only: it produces the .app, macdeployqt handles the rest.
         run: |
-          cmake --install build --prefix dist --config "${BUILD_TYPE}"
+          set -euo pipefail
+          cmake --install build --prefix dist --config "${BUILD_TYPE}" \
+            --component App || {
+              echo "::warning::cmake --install --component App failed; falling back to build tree bundle"
+            }
 
       - name: Locate .app bundle
         id: app
@@ -83,6 +90,8 @@ jobs:
           APP_PATH=""
           if [ -d "dist/OpenConnect-GUI.app" ]; then
             APP_PATH="dist/OpenConnect-GUI.app"
+          elif [ -d "dist/openconnect-gui.app" ]; then
+            APP_PATH="dist/openconnect-gui.app"
           else
             APP_PATH="$(find build dist -maxdepth 4 -name '*.app' -type d 2>/dev/null | head -n1 || true)"
           fi
@@ -95,6 +104,55 @@ jobs:
           du -sh "$APP_PATH"
           echo "path=$APP_PATH" >> "$GITHUB_OUTPUT"
 
+      - name: Deploy Qt frameworks/plugins (macdeployqt)
+        env:
+          QT_PREFIX: ${{ steps.qt.outputs.prefix }}
+        run: |
+          set -euo pipefail
+          APP="${{ steps.app.outputs.path }}"
+          MACDEPLOYQT="$QT_PREFIX/bin/macdeployqt"
+          test -x "$MACDEPLOYQT"
+          # Homebrew prefixes are not "system", so macdeployqt would refuse to
+          # embed them; -libpath makes it treat them as deployable.
+          "$MACDEPLOYQT" "$APP" -verbose=1 \
+            -libpath="$QT_PREFIX/lib" \
+            -libpath=/opt/homebrew/lib \
+            -libpath=/opt/homebrew/opt/openconnect/lib \
+            -libpath=/opt/homebrew/opt/gnutls/lib \
+            -libpath=/opt/homebrew/opt/spdlog/lib \
+            -libpath=/opt/homebrew/opt/fmt/lib
+          echo "== after macdeployqt =="
+          du -sh "$APP"
+
+      - name: Bundle non-Qt dylibs (openconnect/gnutls/spdlog/...)
+        run: |
+          set -euo pipefail
+          APP="${{ steps.app.outputs.path }}"
+          bash .github/scripts/bundle_macos_dylibs.sh "$APP"
+
+      - name: Rewrite rpaths to the bundle
+        run: |
+          set -euo pipefail
+          APP="${{ steps.app.outputs.path }}"
+          BIN="$APP/Contents/MacOS/OpenConnect-GUI"
+          FW_REL="@executable_path/../Frameworks"
+
+          # Ensure the binary can find bundled Frameworks and PlugIns.
+          if ! otool -l "$BIN" | grep -A2 LC_RPATH | grep -q "$FW_REL"; then
+            install_name_tool -add_rpath "$FW_REL" "$BIN" 2>/dev/null || true
+          fi
+
+          # Remove Homebrew/absolute rpaths so nothing resolves outside the app.
+          otool -l "$BIN" | awk '/LC_RPATH/{getline; getline; print $2}' | while read -r rp; do
+            case "$rp" in
+              @*) ;;                       # keep bundle-relative rpaths
+              *) install_name_tool -delete_rpath "$rp" "$BIN" 2>/dev/null || true ;;
+            esac
+          done
+
+          echo "== final rpaths =="
+          otool -l "$BIN" | awk '/LC_RPATH/{getline; getline; print "  " $2}'
+
       - name: Ad-hoc codesign
         run: |
           set -euo pipefail
@@ -102,18 +160,21 @@ jobs:
           codesign --force --deep --sign - "$APP"
           codesign --verify --verbose=2 "$APP" || true
 
-      - name: Diagnose binary + linked libs
+      - name: Verify standalone (no Homebrew paths remain)
         run: |
           set -euo pipefail
           APP="${{ steps.app.outputs.path }}"
           BIN="$APP/Contents/MacOS/OpenConnect-GUI"
-          echo "== arch =="
-          file "$BIN" || true
-          lipo -info "$BIN" || true
           echo "== linked libraries =="
-          otool -L "$BIN" || true
-          echo "== bundle plugins =="
-          ls -R "$APP/Contents/PlugIns" 2>/dev/null || echo "(no PlugIns dir)"
+          otool -L "$BIN"
+          echo "== bundle size =="
+          du -sh "$APP"
+          echo "== any remaining /opt/homebrew references? =="
+          if find "$APP" -type f -exec sh -c 'otool -L "$1" 2>/dev/null' _ {} \; | grep -E "/opt/homebrew|/usr/local/(opt|Cellar)" ; then
+            echo "::error::Bundle still references Homebrew libraries"
+            exit 1
+          fi
+          echo "OK: no external Homebrew references found."
 
       - name: Zip .app
         run: |
