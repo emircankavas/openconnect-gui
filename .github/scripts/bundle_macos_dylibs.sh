@@ -68,17 +68,29 @@ resolve_ref() {
 
 deps_of() { otool -L "$1" 2>/dev/null | awk 'NR > 1 { print $1 }'; }
 
-# Copy destination + new install id for an absolute dependency path.
+# Install name a dependency should get INSIDE the bundle, plus its copy target.
+# Returns "<copy target>\t<new install name>".
+#
+# The install name must point at the framework's BINARY, not the .framework
+# directory: dyld refuses a directory ("not a file") and the app dies at launch
+# with "Library not loaded: .../QtDBus.framework".
 dest_for() {
-  local src="$1" name
+  local src="$1" name inner
   case "$src" in
     *.framework/*)
       name="$(printf '%s\n' "$src" | sed -n 's|.*/\([^/]*\.framework\)/.*|\1|p')"
-      printf '%s\t%s/%s\n' "$FW/$name" "$FW_REL" "$name"
+      inner="$(printf '%s\n' "$src" | sed 's|.*\.framework/||')"
+      printf '%s\t%s/%s/%s\n' "$FW/$name" "$FW_REL" "$name" "$inner"
+      ;;
+    *.framework)
+      # dependency named by the framework directory alone
+      name="$(basename "$src")"
+      printf '%s\t%s/%s/Versions/Current/%s\n' \
+        "$FW/$name" "$FW_REL" "$name" "${name%.framework}"
       ;;
     *)
       name="$(basename "$src")"
-      printf '%s\t%s\n' "$FW/$name" "$FW_REL/$name"
+      printf '%s\t%s/%s\n' "$FW/$name" "$FW_REL/$name"
       ;;
   esac
 }

@@ -210,6 +210,32 @@ jobs:
             fi
           done
 
+          echo "== every dependency resolves to a real FILE? =="
+          # A framework install name pointing at the .framework DIRECTORY (not
+          # its binary) passes an existence check but dyld aborts the launch
+          # with "not a file". Test the file-ness, following symlinks.
+          while IFS= read -r f; do
+            file -b "$f" 2>/dev/null | grep -q "Mach-O" || continue
+            while IFS= read -r dep; do
+              case "$dep" in
+                /usr/lib/*|/System/*) continue ;;
+                @executable_path/*)
+                  cand="$APP/Contents/MacOS/${dep#@executable_path/}" ;;
+                @loader_path/*)
+                  cand="$(dirname "$f")/${dep#@loader_path/}" ;;
+                @rpath/*)
+                  cand="$APP/Contents/Frameworks/${dep#@rpath/}" ;;   # best effort
+                *)
+                  echo "::error::absolute non-system dependency '$dep' in ${f#$APP/}"
+                  fail=1; continue ;;
+              esac
+              if [ ! -f "$cand" ]; then
+                echo "::error::${f#$APP/} -> '$dep' does not resolve to a file ($cand)"
+                fail=1
+              fi
+            done < <(otool -L "$f" 2>/dev/null | awk 'NR > 1 { print $1 }')
+          done < <(find "$APP" -type f -print0)
+
           [ "$fail" -eq 0 ] || exit 1
           echo "OK: bundle is self-contained."
 
