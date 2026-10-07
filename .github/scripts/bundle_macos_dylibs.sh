@@ -260,10 +260,23 @@ while IFS= read -r -d '' f; do
     [ -n "$dep" ] || continue
     newdep=""
 
+    # Resolve an install name to a real filesystem path for existence tests.
+    fs_path() {
+      case "$1" in
+        @executable_path/*) printf '%s' "$APP/Contents/MacOS/${1#@executable_path/}" ;;
+        @loader_path/*)     printf '%s' "$(dirname "$f")/${1#@loader_path/}" ;;
+        *)                  printf '%s' "$1" ;;
+      esac
+    }
+
     case "$dep" in
       */)
         trimmed="${dep%/}"
-        [ -f "$trimmed" ] && newdep="$trimmed"
+        if [ -f "$(fs_path "$trimmed")" ]; then
+          newdep="$trimmed"
+        else
+          echo "   NOTE: '$dep' in ${f#$APP/} — trimming leaves $(fs_path "$trimmed") (missing)"
+        fi
         ;;
       *.framework)
         base="$(basename "$dep")"
@@ -279,8 +292,6 @@ while IFS= read -r -d '' f; do
     if [ -n "$newdep" ] && [ "$newdep" != "$dep" ]; then
       install_name_tool -change "$dep" "$newdep" "$f" 2>/dev/null || true
       echo "   fixed ${f#$APP/} : '$dep' -> '$newdep'"
-    elif [ -n "$newdep" ]; then
-      echo "   WARN: cannot repair '$dep' in ${f#$APP/}" >&2
     fi
   done < <(deps_of "$f")
 done < <(find "$APP" -type f -print0)
