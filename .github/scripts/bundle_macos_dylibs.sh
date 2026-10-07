@@ -247,6 +247,36 @@ while IFS= read -r -d '' f; do
   done < <(deps_of "$f")
 done < <(find "$APP" -type f -print0)
 
+# --- fix framework references that name the .framework DIRECTORY ------------
+# macdeployqt sometimes writes "@executable_path/../Frameworks/QtDBus.framework"
+# with no inner binary path. dyld tries to load the directory, reports "not a
+# file", and the app aborts at launch. Rewrite every such reference to the
+# framework's binary (reachable through its Versions/Current symlink).
+# The embedding pass skips @executable_path refs, so this must run separately.
+echo "== fixing framework-directory references =="
+while IFS= read -r -d '' f; do
+  is_macho "$f" || continue
+  while IFS= read -r dep; do
+    [ -n "$dep" ] || continue
+    # does it end in ".framework" and live in our Frameworks dir?
+    case "$dep" in
+      "$FW_REL"/*.framework|*.framework) ;;
+      *) continue ;;
+    esac
+    base="$(basename "$dep")"
+    fwdir="$FW/$base"
+    [ -d "$fwdir" ] || continue
+    binname="${base%.framework}"
+    newdep="$FW_REL/$base/Versions/Current/$binname"
+    if [ -f "$fwdir/Versions/Current/$binname" ] || [ -f "$fwdir/$binname" ]; then
+      install_name_tool -change "$dep" "$newdep" "$f" 2>/dev/null || true
+      echo "   fixed ${f#$APP/} : $dep -> $newdep"
+    else
+      echo "   WARN: no binary found for $base in ${f#$APP/}" >&2
+    fi
+  done < <(deps_of "$f")
+done < <(find "$APP" -type f -print0)
+
 # --- strip absolute rpaths from every Mach-O in the bundle ------------------
 echo "== stripping absolute rpaths =="
 while IFS= read -r -d '' f; do
