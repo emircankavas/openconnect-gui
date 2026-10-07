@@ -246,14 +246,31 @@ jobs:
         # (a reference to the .framework DIRECTORY looks fine to otool).
         # A headless runner will fail later for other reasons (no display,
         # no root), which is fine — we only assert dyld got past loading.
+        # NB: macOS ships no GNU `timeout`, so bound the run manually.
         run: |
           set -uo pipefail
           APP="${{ steps.app.outputs.path }}"
           BIN="$APP/Contents/MacOS/OpenConnect-GUI"
-          OUT="$(timeout 25 "$BIN" 2>&1 || true)"
+          LOG="$(mktemp)"
+
+          "$BIN" >"$LOG" 2>&1 &
+          PID=$!
+          for _ in $(seq 1 10); do
+            kill -0 "$PID" 2>/dev/null || break
+            sleep 1
+          done
+          if kill -0 "$PID" 2>/dev/null; then
+            echo "(still running after 10s — terminating; it got past dyld)"
+            kill "$PID" 2>/dev/null || true
+          fi
+          wait "$PID" 2>/dev/null || true
+
+          OUT="$(cat "$LOG")"
           echo "----- app output -----"
-          echo "$OUT"
+          echo "${OUT:-(no output)}"
           echo "----------------------"
+          rm -f "$LOG"
+
           if printf '%s' "$OUT" | grep -qiE "Library not loaded|not a file|image not found|dyld: "; then
             echo "::error::dyld could not load a library — bundle is broken"
             exit 1
