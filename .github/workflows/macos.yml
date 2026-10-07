@@ -239,6 +239,27 @@ jobs:
           [ "$fail" -eq 0 ] || exit 1
           echo "OK: bundle is self-contained."
 
+      - name: Smoke test — dyld must resolve every library
+        # The definitive check: actually launch the binary. A missing or
+        # mis-shaped dependency makes dyld abort before main() with
+        # "Library not loaded", which no static inspection reliably catches
+        # (a reference to the .framework DIRECTORY looks fine to otool).
+        # A headless runner will fail later for other reasons (no display,
+        # no root), which is fine — we only assert dyld got past loading.
+        run: |
+          set -uo pipefail
+          APP="${{ steps.app.outputs.path }}"
+          BIN="$APP/Contents/MacOS/OpenConnect-GUI"
+          OUT="$(timeout 25 "$BIN" 2>&1 || true)"
+          echo "----- app output -----"
+          echo "$OUT"
+          echo "----------------------"
+          if printf '%s' "$OUT" | grep -qiE "Library not loaded|not a file|image not found|dyld: "; then
+            echo "::error::dyld could not load a library — bundle is broken"
+            exit 1
+          fi
+          echo "OK: dyld loaded the app (no load-time errors)."
+
       - name: Zip .app
         run: |
           set -euo pipefail
