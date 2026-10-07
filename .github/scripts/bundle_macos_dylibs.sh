@@ -40,7 +40,8 @@ is_macho() {
 }
 
 # Resolve an @rpath/@loader_path reference using the loader commands of $1.
-# Falls back to well-known Homebrew prefixes when no LC_RPATH matches.
+# Falls back to the standard Homebrew lib dirs and a search under the Cellar
+# (some deps, e.g. ICU shipped with qtwebengine, live only in versioned dirs).
 resolve_ref() {
   local file="$1" ref="$2" name rp
   name="${ref#@rpath/}"; name="${name#@loader_path/}"
@@ -56,6 +57,12 @@ resolve_ref() {
   for base in /opt/homebrew/lib /usr/local/lib; do
     if [ -f "$base/$name" ]; then printf '%s\n' "$base/$name"; return 0; fi
   done
+
+  # last resort: locate the basename anywhere under the package managers
+  local found
+  found="$(find /opt/homebrew/Cellar /usr/local/Cellar -name "$(basename "$name")" \
+            -type f 2>/dev/null | head -n1 || true)"
+  if [ -n "$found" ]; then printf '%s\n' "$found"; return 0; fi
   return 1
 }
 
@@ -172,9 +179,13 @@ while [ "$progress" -eq 1 ]; do
         case "$abs" in
           *.framework/*)
             fw_src="$(printf '%s\n' "$abs" | sed -n 's|\(.*\.framework\)/.*|\1|p')"
-            # -L: /opt/homebrew/lib/<X>.framework is itself a symlink into
-            # Cellar; copying it without dereferencing ships a broken link.
-            cp -RfL "$fw_src" "$FW/"
+            # Resolve ONLY the outer Homebrew symlink (/opt/homebrew/lib/X.framework
+            # -> Cellar/...), then copy preserving the framework's own internal
+            # links (Versions/Current -> A). cp -L here would materialise those too,
+            # leaving two copies of the binary and making codesign report
+            # "bundle format is ambiguous".
+            fw_src="$(readlink -f "$fw_src")"
+            cp -Rf "$fw_src" "$FW/"
             chmod -R u+w "$target" 2>/dev/null || true
             ;;
           *)
