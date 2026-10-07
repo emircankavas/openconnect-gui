@@ -219,6 +219,9 @@ jobs:
             while IFS= read -r dep; do
               case "$dep" in
                 /usr/lib/*|/System/*) continue ;;
+                */)
+                  echo "::error::${f#$APP/} -> '$dep' has a trailing slash (dyld errno 20)"
+                  fail=1; continue ;;
                 @executable_path/*)
                   cand="$APP/Contents/MacOS/${dep#@executable_path/}" ;;
                 @loader_path/*)
