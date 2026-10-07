@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 #
-# Embed non-Qt (Homebrew) dynamic libraries into a macOS .app bundle and
-# rewrite their install names so the app runs on machines without Homebrew.
+# Make a macOS .app self-contained by embedding its non-system dynamic
+# dependencies (standalone *.dylib AND *.framework binaries from Homebrew)
+# and rewriting every install name / rpath so nothing resolves outside the
+# bundle.
 #
-# Qt frameworks and Qt plugins are handled separately by macdeployqt; this
-# script only walks plain .dylib dependencies (openconnect, gnutls, spdlog,
-# fmt, nettle, hogweed, gmp, p11-kit, libidn2, ...) recursively.
+# Complements macdeployqt, which leaves some things behind on Homebrew Qt:
+# QtQml*/QtDBus frameworks, and transitive C libs (e.g. brotli via gnutls).
 #
 # Usage: bundle_macos_dylibs.sh /path/to/App.app
 #
@@ -18,7 +19,7 @@ if [ ! -d "$APP" ]; then
 fi
 
 FW="$APP/Contents/Frameworks"
-FRAMEWORKS_PREFIX="@executable_path/../Frameworks"
+FW_REL="@executable_path/../Frameworks"
 mkdir -p "$FW"
 
 is_system() {
@@ -36,25 +37,43 @@ is_macho() {
 }
 
 # Resolve an @rpath/@loader_path reference using the loader commands of $1.
+# Falls back to well-known Homebrew prefixes when no LC_RPATH matches.
 resolve_ref() {
-  local file="$1" ref="$2" name="${2#@rpath/}"
-  name="${name#@loader_path/}"
-  local rp
+  local file="$1" ref="$2" name rp
+  name="${ref#@rpath/}"; name="${name#@loader_path/}"
   while IFS= read -r rp; do
     [ -n "$rp" ] || continue
     case "$rp" in
       @executable_path*) rp="${rp/@executable_path/$(dirname "$file")}" ;;
       @loader_path*)     rp="${rp/@loader_path/$(dirname "$file")}" ;;
     esac
-    if [ -f "$rp/$name" ]; then
-      printf '%s\n' "$rp/$name"
-      return 0
-    fi
+    if [ -f "$rp/$name" ]; then printf '%s\n' "$rp/$name"; return 0; fi
   done < <(otool -l "$file" | awk '/LC_RPATH/{getline; getline; print $2}')
+
+  for base in /opt/homebrew/lib /usr/local/lib; do
+    if [ -f "$base/$name" ]; then printf '%s\n' "$base/$name"; return 0; fi
+  done
   return 1
 }
 
-echo "== bundling non-Qt dylibs into $FW =="
+deps_of() { otool -L "$1" 2>/dev/null | awk 'NR > 1 { print $1 }'; }
+
+# Copy destination + new install id for an absolute dependency path.
+dest_for() {
+  local src="$1" name
+  case "$src" in
+    *.framework/*)
+      name="$(printf '%s\n' "$src" | sed -n 's|.*/\([^/]*\.framework\)/.*|\1|p')"
+      printf '%s\t%s/%s\n' "$FW/$name" "$FW_REL" "$name"
+      ;;
+    *)
+      name="$(basename "$src")"
+      printf '%s\t%s\n' "$FW/$name" "$FW_REL/$name"
+      ;;
+  esac
+}
+
+echo "== embedding external dependencies into $FW =="
 
 pass=0
 progress=1
@@ -68,43 +87,96 @@ while [ "$progress" -eq 1 ]; do
 
     while IFS= read -r dep; do
       [ -n "$dep" ] || continue
+      is_system "$dep" && continue
+      case "$dep" in "$FW_REL"/*) continue ;; esac
 
-      # system / already-bundled dependencies need no action
-      if is_system "$dep"; then continue; fi
-      case "$dep" in
-        "$FRAMEWORKS_PREFIX"/*) continue ;;
-      esac
-
-      # resolve relative loader references to an absolute path
       abs="$dep"
       case "$dep" in
         @rpath/*|@loader_path/*)
           if ! abs="$(resolve_ref "$f" "$dep")"; then
-            echo "   WARN: unresolved $dep (in ${f#$APP/})" >&2
+            echo "   WARN: could not resolve $dep (referenced by ${f#$APP/})" >&2
             continue
           fi
           ;;
       esac
+      is_system "$abs" && continue
 
-      # leave .framework deps to macdeployqt
-      case "$abs" in
-        *.framework/*) continue ;;
-      esac
+      IFS=$'\t' read -r target newid <<<"$(dest_for "$abs")"
 
-      base="$(basename "$abs")"
-      target="$FW/$base"
-
-      if [ ! -f "$target" ]; then
-        cp -f "$abs" "$target"
-        chmod u+w "$target"
-        install_name_tool -id "$FRAMEWORKS_PREFIX/$base" "$target" 2>/dev/null || true
+      if [ ! -e "$target" ]; then
+        echo "   + ${target#$FW/}  <- $abs"
+        mkdir -p "$(dirname "$target")"
+        case "$abs" in
+          *.framework/*)
+            fw_src="$(printf '%s\n' "$abs" | sed -n 's|\(.*\.framework\)/.*|\1|p')"
+            cp -Rf "$fw_src" "$FW/"
+            chmod -R u+w "$target" 2>/dev/null || true
+            ;;
+          *)
+            cp -f "$abs" "$target"
+            chmod u+w "$target"
+            ;;
+        esac
+        install_name_tool -id "$newid" "$target" 2>/dev/null || true
         progress=1
       fi
 
-      install_name_tool -change "$dep" "$FRAMEWORKS_PREFIX/$base" "$f" 2>/dev/null || true
-    done < <(otool -L "$f" | awk 'NR > 1 { print $1 }')
+      install_name_tool -change "$dep" "$newid" "$f" 2>/dev/null || true
+    done < <(deps_of "$f")
   done < <(find "$APP" -type f -print0)
 done
 
-echo "== embedded $(find "$FW" -name '*.dylib' | wc -l | tr -d ' ') dylibs =="
-ls -1 "$FW" || true
+# --- normalise ids of everything we shipped ---------------------------------
+echo "== normalising bundled identifiers =="
+while IFS= read -r -d '' f; do
+  is_macho "$f" || continue
+  case "$f" in
+    "$FW"/*)
+      install_name_tool -id "$FW_REL/${f#$FW/}" "$f" 2>/dev/null || true
+      ;;
+  esac
+done < <(find "$APP" -type f -print0)
+
+# --- re-point any absolute Homebrew reference at its bundled copy -----------
+echo "== rewriting remaining absolute references =="
+while IFS= read -r -d '' f; do
+  is_macho "$f" || continue
+  while IFS= read -r dep; do
+    case "$dep" in
+      /opt/homebrew/*|/usr/local/opt/*|/usr/local/Cellar/*)
+        base="$(basename "$dep")"
+        if [ -e "$FW/$base" ]; then
+          install_name_tool -change "$dep" "$FW_REL/$base" "$f" 2>/dev/null || true
+        elif printf '%s' "$dep" | grep -q '\.framework/'; then
+          fw="$(printf '%s\n' "$dep" | sed -n 's|.*/\([^/]*\.framework\)/.*|\1|p')"
+          inner="$(printf '%s\n' "$dep" | sed 's|.*\.framework/||')"
+          if [ -e "$FW/$fw" ]; then
+            install_name_tool -change "$dep" "$FW_REL/$fw/$inner" "$f" 2>/dev/null || true
+          fi
+        fi
+        ;;
+    esac
+  done < <(deps_of "$f")
+done < <(find "$APP" -type f -print0)
+
+# --- strip absolute rpaths from every Mach-O in the bundle ------------------
+echo "== stripping absolute rpaths =="
+while IFS= read -r -d '' f; do
+  is_macho "$f" || continue
+  while IFS= read -r rp; do
+    case "$rp" in
+      @*) ;;
+      *) install_name_tool -delete_rpath "$rp" "$f" 2>/dev/null || true ;;
+    esac
+  done < <(otool -l "$f" | awk '/LC_RPATH/{getline; getline; print $2}')
+done < <(find "$APP" -type f -print0)
+
+# --- make sure every Mach-O can reach the bundled Frameworks dir ------------
+while IFS= read -r -d '' f; do
+  is_macho "$f" || continue
+  if ! otool -l "$f" | awk '/LC_RPATH/{getline; getline; print $2}' | grep -qx "$FW_REL"; then
+    install_name_tool -add_rpath "$FW_REL" "$f" 2>/dev/null || true
+  fi
+done < <(find "$APP" -type f -print0)
+
+echo "== embedded: $(find "$FW" -maxdepth 1 -name '*.dylib' | wc -l | tr -d ' ') dylibs, $(find "$FW" -maxdepth 1 -name '*.framework' | wc -l | tr -d ' ') frameworks =="
