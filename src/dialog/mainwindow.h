@@ -110,6 +110,7 @@ public:
     void connectProfile(const QString& profileName);
     void disconnectProfile(const QString& profileName);
     void checkAdPasswordExpiry(const QString& profileName);
+    void copyPasswordToClipboard(const QString& profileName);
 
 public slots:
     void iconActivated(QSystemTrayIcon::ActivationReason reason);

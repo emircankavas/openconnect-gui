@@ -197,6 +197,7 @@ ProfileCard::ProfileCard(const QString& profileName,
     , m_status(STATUS_DISCONNECTED)
     , m_iconIndex(iconIndex)
     , m_metricsHeight(0)
+    , m_hasStoredPassword(false)
     , m_adEnabled(false)
     , m_adUserDays(-999)
     , m_adSrvDays(-999)
@@ -577,6 +578,12 @@ void ProfileCard::showCardMenu(const QPoint& globalPos)
     QAction* actLogs = menu.addAction(tr("Logları Görüntüle"));
     QAction* actCopyGw = menu.addAction(tr("Ağ Geçidini Kopyala"));
 
+    // Only offered when the profile actually has a stored password.
+    QAction* actCopyPwd = nullptr;
+    if (m_hasStoredPassword) {
+        actCopyPwd = menu.addAction(tr("Şifreyi Kopyala"));
+    }
+
     QAction* actRefreshAd = nullptr;
     if (m_adEnabled && m_status == STATUS_CONNECTED) {
         actRefreshAd = menu.addAction(tr("AD Şifre Süresini Yenile"));
@@ -598,6 +605,8 @@ void ProfileCard::showCardMenu(const QPoint& globalPos)
         emit logsRequested();
     } else if (selected == actCopyGw) {
         QApplication::clipboard()->setText(m_gateway);
+    } else if (actCopyPwd && selected == actCopyPwd) {
+        emit copyPasswordRequested();
     } else if (selected == actRefreshAd) {
         emit adRefreshRequested();
     } else if (selected == actDelete) {

@@ -49,6 +49,10 @@ public:
 
     int status() const { return m_status; }
 
+    // Whether this profile has a stored password (controls the "copy password"
+    // menu entry: it is hidden entirely when there is nothing to copy).
+    void setHasStoredPassword(bool has) { m_hasStoredPassword = has; }
+
     int metricsHeight() const { return m_metricsHeight; }
     void setMetricsHeight(int h);
 
@@ -58,6 +62,7 @@ signals:
     void editRequested();
     void deleteRequested();
     void adRefreshRequested();
+    void copyPasswordRequested();
 
 protected:
     void contextMenuEvent(QContextMenuEvent* event) override;
@@ -82,6 +87,7 @@ private:
     int m_status;
     int m_iconIndex;
     int m_metricsHeight;
+    bool m_hasStoredPassword;
 
     bool m_adEnabled;
     QString m_adDomain;

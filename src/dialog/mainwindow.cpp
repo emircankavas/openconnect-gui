@@ -33,6 +33,8 @@
 
 #include "AdPasswordChecker.h"
 
+#include <QApplication>
+#include <QClipboard>
 #include <QScrollArea>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -790,6 +792,14 @@ void MainWindow::reload_settings()
                                     ss.get_ad_srv_expiry_text(),
                                     ss.get_ad_srv_expiry_days());
 
+                // Enables the "Şifreyi Kopyala" menu entry only when there is
+                // something to copy.
+                card->setHasStoredPassword(!ss.get_password().isEmpty());
+
+                connect(card, &ProfileCard::copyPasswordRequested, this, [this, str]() {
+                    copyPasswordToClipboard(str);
+                }, Qt::QueuedConnection);
+
                 connect(card, &ProfileCard::adRefreshRequested, this, [this, str]() {
                     checkAdPasswordExpiry(str);
                 }, Qt::QueuedConnection);
@@ -1025,6 +1035,34 @@ void MainWindow::disconnectProfile(const QString& profileName)
     Logger::instance().addMessage(QString("[%1] %2").arg(profileName, tr("Disconnecting...")));
     changeStatus(profileName, STATUS_DISCONNECTING);
     term_thread(this, profileName, &conn->cmd_fd);
+}
+
+void MainWindow::copyPasswordToClipboard(const QString& profileName)
+{
+    StoredServer ss;
+    QString pName = profileName;
+    if (ss.load(pName) < 0) {
+        return;
+    }
+
+    // A live connection may hold a password that differs from the stored one
+    // (e.g. entered at the connect prompt). Mirror the resolution used by
+    // checkAdPasswordExpiry().
+    QString password = ss.get_password();
+    auto conn = getConnection(profileName);
+    if (password.isEmpty() && conn && conn->vpninfo && conn->vpninfo->ss) {
+        password = conn->vpninfo->ss->get_password();
+    }
+
+    // Nothing to copy: stay silent, consistent with "Ağ Geçidini Kopyala".
+    // The menu entry is only shown when a password exists, so this is a
+    // safety net (e.g. the profile changed since the menu was built).
+    if (password.isEmpty()) {
+        return;
+    }
+
+    // Deliberately never logged.
+    QApplication::clipboard()->setText(password);
 }
 
 void MainWindow::checkAdPasswordExpiry(const QString& profileName)
