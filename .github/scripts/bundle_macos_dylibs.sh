@@ -73,6 +73,32 @@ dest_for() {
   esac
 }
 
+# --- Phase 0: dereference symlinks that escape the bundle -------------------
+# macdeployqt copies Homebrew Qt plugins/frameworks as symlinks; in Homebrew
+# those point into ../Cellar/..., which does not exist on a user's machine
+# (e.g. PlugIns/platforms/libqcocoa.dylib). Replace any link whose real target
+# lives outside the bundle with the actual file/dir; keep internal links
+# (framework Versions/Current -> A). Must run BEFORE the embedding passes so
+# the freshly materialised Mach-O files get their install names rewritten.
+echo "== dereferencing escaping symlinks =="
+while IFS= read -r -d '' l; do
+  real="$(readlink -f "$l" 2>/dev/null || true)"
+  if [ -z "$real" ] || [ ! -e "$real" ]; then
+    echo "   WARN: broken symlink ${l#$APP/} -> $(readlink "$l" 2>/dev/null)" >&2
+    continue
+  fi
+  case "$real" in
+    "$APP"/*) continue ;;   # internal: leave as-is
+  esac
+  echo "   * ${l#$APP/}  (was -> $(readlink "$l"))"
+  rm -f "$l"
+  if [ -d "$real" ]; then
+    cp -RfL "$real" "$l"
+  else
+    cp -fL "$real" "$l"
+  fi
+done < <(find "$APP" -type l -print0)
+
 echo "== embedding external dependencies into $FW =="
 
 pass=0

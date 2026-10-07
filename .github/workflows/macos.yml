@@ -169,12 +169,40 @@ jobs:
           otool -L "$BIN"
           echo "== bundle size =="
           du -sh "$APP"
-          echo "== any remaining /opt/homebrew references? =="
-          if find "$APP" -type f -exec sh -c 'otool -L "$1" 2>/dev/null' _ {} \; | grep -E "/opt/homebrew|/usr/local/(opt|Cellar)" ; then
+
+          fail=0
+
+          echo "== install-name references outside the bundle? =="
+          if find "$APP" -type f -exec sh -c 'otool -L "$1" 2>/dev/null' _ {} \; \
+               | grep -E "/opt/homebrew|/usr/local/(opt|Cellar)" ; then
             echo "::error::Bundle still references Homebrew libraries"
-            exit 1
+            fail=1
           fi
-          echo "OK: no external Homebrew references found."
+
+          echo "== symlinks escaping the bundle? (plugins must be real files) =="
+          while IFS= read -r -d '' l; do
+            real="$(readlink -f "$l" 2>/dev/null || true)"
+            if [ -z "$real" ] || [ ! -e "$real" ]; then
+              echo "::error::broken symlink ${l#$APP/} -> $(readlink "$l")"
+              fail=1
+            elif [ "${real#$APP/}" = "$real" ]; then
+              echo "::error::symlink escapes bundle: ${l#$APP/} -> $real"
+              fail=1
+            fi
+          done < <(find "$APP" -type l -print0)
+
+          echo "== mandatory Qt platform plugin present as a real file? =="
+          for p in \
+            "$APP/Contents/PlugIns/platforms/libqcocoa.dylib" \
+            "$APP/Contents/PlugIns/styles/libqmacstyle.dylib" ; do
+            if [ ! -f "$p" ] || [ -L "$p" ]; then
+              echo "::error::missing real plugin: ${p#$APP/}"
+              fail=1
+            fi
+          done
+
+          [ "$fail" -eq 0 ] || exit 1
+          echo "OK: bundle is self-contained."
 
       - name: Zip .app
         run: |
