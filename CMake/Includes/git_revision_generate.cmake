@@ -10,10 +10,12 @@ if(IS_DIRECTORY ${GIT_ROOT_DIR}/.git)
         OUTPUT_VARIABLE GIT_COM_ID
     )
     if(NOT ${res_var} EQUAL 0)
-        set(GIT_COMMIT_ID "?.?.?-unknown")
+        set(GIT_COM_ID "?.?.?-unknown")
         message(WARNING "Git failed (not a repo, or no tags). Build will not contain git revision info.")
     endif()
-    string(REGEX REPLACE "\n$" "" GIT_COMMIT_ID ${GIT_COM_ID})
+    # Quote the input so an empty GIT_COM_ID does not drop the argument and
+    # make string(REGEX REPLACE) fail with "needs at least 6 arguments".
+    string(REGEX REPLACE "\n$" "" GIT_COMMIT_ID "${GIT_COM_ID}")
     string(REGEX REPLACE "^v" "" GIT_COMMIT_ID ${GIT_COMMIT_ID})
 
     # check number of digits in version string
