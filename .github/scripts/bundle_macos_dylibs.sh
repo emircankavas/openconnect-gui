@@ -17,6 +17,9 @@ if [ ! -d "$APP" ]; then
   echo "error: not a bundle: $APP" >&2
   exit 1
 fi
+# Absolute root: readlink -f returns absolute paths, so the internal-vs-external
+# test below is only reliable against an absolute $APP.
+APP="$(cd "$(dirname "$APP")" && pwd -P)/$(basename "$APP")"
 
 FW="$APP/Contents/Frameworks"
 FW_REL="@executable_path/../Frameworks"
@@ -78,19 +81,51 @@ dest_for() {
 # those point into ../Cellar/..., which does not exist on a user's machine
 # (e.g. PlugIns/platforms/libqcocoa.dylib). Replace any link whose real target
 # lives outside the bundle with the actual file/dir; keep internal links
-# (framework Versions/Current -> A). Must run BEFORE the embedding passes so
-# the freshly materialised Mach-O files get their install names rewritten.
+# (framework Versions/Current -> A, which codesign requires). Runs BEFORE the
+# embedding passes so the materialised Mach-O files are processed too.
 echo "== dereferencing escaping symlinks =="
 while IFS= read -r -d '' l; do
-  real="$(readlink -f "$l" 2>/dev/null || true)"
+  link_target="$(readlink "$l")"
+  cur="$(cd "$(dirname "$l")" && pwd -P)"
+  # resolve relative to the link's own directory, without requiring existence
+  real="$(cd "$cur" 2>/dev/null && readlink -f "$link_target" 2>/dev/null || true)"
+
   if [ -z "$real" ] || [ ! -e "$real" ]; then
-    echo "   WARN: broken symlink ${l#$APP/} -> $(readlink "$l" 2>/dev/null)" >&2
+    # dangling link whose target escapes the bundle -> re-resolve via Homebrew.
+    # Cellar paths are versioned, but /opt/homebrew/opt/<formula> is the stable
+    # symlink to the same tree, so rewrite Cellar/<f>/<ver>/<rest> -> opt/<f>/<rest>.
+    case "$link_target" in
+      *Cellar/*)
+        formula="$(printf '%s\n' "$link_target" | sed -n 's|.*Cellar/\([^/]*\)/[^/]*/.*|\1|p')"
+        rest="$(printf '%s\n' "$link_target" | sed -n 's|.*Cellar/[^/]*/[^/]*/\(.*\)|\1|p')"
+        if [ -n "$formula" ] && [ -n "$rest" ]; then
+          for root in /opt/homebrew/opt /usr/local/opt; do
+            if [ -e "$root/$formula/$rest" ]; then
+              real="$root/$formula/$rest"
+              break
+            fi
+          done
+        fi
+        ;;
+    esac
+  fi
+
+  if [ -z "$real" ] || [ ! -e "$real" ]; then
+    # last resort: search the Homebrew trees for the basename
+    base="$(basename "$link_target")"
+    real="$(find /opt/homebrew /usr/local -name "$base" 2>/dev/null \
+              -not -path '*/Cellar/*' | head -n1 || true)"
+  fi
+
+  if [ -z "$real" ] || [ ! -e "$real" ]; then
+    echo "   WARN: unresolvable symlink ${l#$APP/} -> ${link_target}" >&2
     continue
   fi
+
   case "$real" in
     "$APP"/*) continue ;;   # internal: leave as-is
   esac
-  echo "   * ${l#$APP/}  (was -> $(readlink "$l"))"
+  echo "   * ${l#$APP/}  (was -> ${link_target})"
   rm -f "$l"
   if [ -d "$real" ]; then
     cp -RfL "$real" "$l"
