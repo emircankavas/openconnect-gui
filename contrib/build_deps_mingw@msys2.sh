@@ -151,6 +151,15 @@ set -e
 echo "hash:"
 git rev-parse --short HEAD | tee ../openconnect-${OC_TAG}_$MSYSTEM.hash
 
+# Recent mingw-w64 dropped the non-standard <sec_api/stdlib_s.h> header, but
+# openconnect's compat.c includes it unconditionally on _WIN32. Make that
+# include conditional so openconnect builds with the current toolchain
+# (errno_t/size_t come from the standard headers in that case).
+if [ -f compat.c ] && grep -q 'sec_api/stdlib_s.h' compat.c; then
+    sed -i 's|#include <sec_api/stdlib_s.h>|#if defined(__has_include)\n#if __has_include(<sec_api/stdlib_s.h>)\n#include <sec_api/stdlib_s.h>\n#endif\n#endif|' compat.c
+    echo "patched compat.c: made sec_api/stdlib_s.h include conditional"
+fi
+
 # For openconnect we need wintun locally to avoid downloading
 # which is unreliable.
 #WINTUNFILE=$(cat Makefile.am|grep ^WINTUNDRIVER |cut -d '=' -f 2|sed 's/^\s//')
