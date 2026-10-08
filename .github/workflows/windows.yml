@@ -62,7 +62,12 @@ jobs:
           set -euo pipefail
           echo "== build dir =="
           ls -la build || true
-          INST="$(find build -maxdepth 2 -name 'openconnect-gui*.exe' -type f | head -n1)"
+          # Prefer the versioned NSIS installer in the build root
+          # (openconnect-gui-<ver>-oc-<ocver>-win64.exe); fall back to any .exe.
+          INST="$(find build -maxdepth 1 -name 'openconnect-gui-*.exe' -type f | head -n1)"
+          if [ -z "$INST" ]; then
+            INST="$(find build -maxdepth 2 -name '*.exe' -type f | head -n1)"
+          fi
           if [ -z "$INST" ]; then
             echo "::error::No installer was produced"
             find . -name '*.exe' 2>/dev/null | head -n50 || true
