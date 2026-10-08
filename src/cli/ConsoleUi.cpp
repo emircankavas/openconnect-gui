@@ -21,6 +21,7 @@
 
 #include "common.h"
 #include "logger.h"
+#include "posixcompat.h"
 
 #include <QTextStream>
 
@@ -103,7 +104,7 @@ bool ConsoleUi::readSecret(QString& out)
     char ch;
     bool ok = true;
     while (true) {
-        ssize_t n = ::read(STDIN_FILENO, &ch, 1);
+        int n = ocg_read(OCG_STDIN_FILENO, &ch, 1);
         if (n <= 0) {
             ok = false;
             break;
@@ -118,7 +119,7 @@ bool ConsoleUi::readSecret(QString& out)
         line.push_back(ch);
     }
     if (ch != '\n') {
-        write(STDOUT_FILENO, "\n", 1);
+        ocg_write(OCG_STDOUT_FILENO, "\n", 1);
     }
     tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
     out = QString::fromUtf8(line.c_str());
@@ -164,7 +165,7 @@ bool ConsoleUi::promptText(const QString& title, const QString& label, bool secr
     char ch;
     bool ok = true;
     while (true) {
-        ssize_t n = ::read(STDIN_FILENO, &ch, 1);
+        int n = ocg_read(OCG_STDIN_FILENO, &ch, 1);
         if (n <= 0) { ok = false; break; }
         if (ch == '\n' || ch == '\r') { break; }
         line.push_back(ch);
@@ -204,7 +205,7 @@ bool ConsoleUi::promptSelect(const QString& title, const QString& label,
     std::string line;
     char ch;
     while (true) {
-        ssize_t n = ::read(STDIN_FILENO, &ch, 1);
+        int n = ocg_read(OCG_STDIN_FILENO, &ch, 1);
         if (n <= 0) { return false; }
         if (ch == '\n' || ch == '\r') { break; }
         line.push_back(ch);
@@ -251,14 +252,14 @@ bool ConsoleUi::confirmPeerCert(const QString& text, const QString& hostInfo,
     errStream() << acceptText << "? [y/N]: ";
     errStream().flush();
     char ch = 0;
-    if (::read(STDIN_FILENO, &ch, 1) <= 0) {
+    if (ocg_read(OCG_STDIN_FILENO, &ch, 1) <= 0) {
         return false;
     }
     bool accept = (ch == 'y' || ch == 'Y');
     // drain to end of line
     char skip = ch;
     while (skip != '\n' && skip != '\r' && skip != 0) {
-        if (::read(STDIN_FILENO, &skip, 1) <= 0) break;
+        if (ocg_read(OCG_STDIN_FILENO, &skip, 1) <= 0) break;
     }
     return accept;
 }
@@ -274,13 +275,13 @@ bool ConsoleUi::confirmBanner(const QString& banner)
     }
 
     char ch = 0;
-    if (::read(STDIN_FILENO, &ch, 1) <= 0) {
+    if (ocg_read(OCG_STDIN_FILENO, &ch, 1) <= 0) {
         return false;
     }
     bool accept = (ch == 'y' || ch == 'Y');
     char skip = ch;
     while (skip != '\n' && skip != '\r' && skip != 0) {
-        if (::read(STDIN_FILENO, &skip, 1) <= 0) break;
+        if (ocg_read(OCG_STDIN_FILENO, &skip, 1) <= 0) break;
     }
     return accept;
 }

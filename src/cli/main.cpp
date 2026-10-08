@@ -22,6 +22,7 @@
 #include "OcSettings.h"
 #include "config.h"
 #include "keyprompt.h"
+#include "posixcompat.h"
 #include "logger.h"
 #include "server_storage.h"
 #include "vpninfo.h"
@@ -132,7 +133,7 @@ static void onSignal(int)
     g_stop = 1;
     if (g_cmdFd >= 0) {
         char cmd = OC_CMD_CANCEL;
-        ssize_t r = ::write(g_cmdFd, &cmd, 1);
+        int r = ::write(g_cmdFd, &cmd, 1);
         (void)r;
     }
 }
@@ -229,16 +230,16 @@ static int runConnection(const Options& opt, int readyFd)
     // Signal readiness to the parent (daemon mode) and write the state file.
     if (readyFd >= 0) {
         QByteArray line = QStringLiteral("ok %1 %2 %3\n").arg(ip, dns, cstp).toUtf8();
-        ssize_t r = ::write(readyFd, line.constData(), line.size());
+        int r = ocg_write(readyFd, line.constData(), line.size());
         (void)r;
-        ::close(readyFd);
+        ocg_close(readyFd);
     }
 
     {
         QFile sf(stateFileFor(opt.profile));
         if (sf.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
             QTextStream ts(&sf);
-            ts << "pid=" << ::getpid() << '\n'
+            ts << "pid=" << ocg_getpid() << '\n'
                << "profile=" << opt.profile << '\n'
                << "ip=" << ip << '\n'
                << "dns=" << dns << '\n'
