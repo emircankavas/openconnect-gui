@@ -1,6 +1,6 @@
-# OpenConnect GUI (Multi-Profile & Split-DNS Fork)
+# OpenConnect GUI (Multi-Profile, Split-DNS & Headless CLI Fork)
 
-This project is an enhanced fork of the official [OpenConnect GUI](https://gui.openconnect-vpn.net/) client, designed to provide concurrent multi-VPN connections, modern macOS Split-DNS management, and seamless credential persistence.
+This project is an enhanced fork of the official [OpenConnect GUI](https://gui.openconnect-vpn.net/) client, designed to provide concurrent multi-VPN connections, modern Split-DNS management, per-profile customization, and a headless command-line client for servers.
 
 ---
 
@@ -13,11 +13,11 @@ This project is an enhanced fork of the official [OpenConnect GUI](https://gui.o
 - **Tagged Activity Logs:** Progress and diagnostic logs are automatically prefixed with the active profile name (e.g., `[Office] CSTP connected...`), keeping logs clean and readable.
 - **Single Window Mode:** Multi-window mode replaced with a unified card-based dashboard and strictly enforced single-instance mode.
 
-### 2. Modern macOS Split-DNS & Wi-Fi Protection
-- **Wi-Fi DNS Preservation:** Prevents VPN connections from overwriting the physical Wi-Fi/Ethernet interface's DHCP DNS servers via legacy `networksetup` overrides.
-- **Dynamic SupplementalMatchDomains:** Leverages macOS native `scutil` `SupplementalMatchDomains` per `utun` interface. Queries matching the VPN's domains are routed to the VPN DNS, while local Wi-Fi and general internet queries remain untouched.
-- **Guaranteed Cleanup:** Automatic removal of `scutil` resolver dictionaries upon profile disconnection and startup sweeping of any orphaned tunnel resolvers from unexpected system restarts.
-- **Linux:** the same per-profile split-DNS is applied through `systemd-resolved` (`resolvectl`, routing-only `~domain` entries) when available, or through `/etc/resolv.conf` otherwise.
+### 2. Split-DNS with Wi-Fi DNS Preservation
+Per-profile split-DNS is set up natively on each platform, so queries for the VPN's domains are answered by the VPN DNS while local Wi-Fi and general internet resolution stay untouched.
+- **macOS:** native `scutil` `SupplementalMatchDomains` per `utun` interface. The physical Wi-Fi/Ethernet interface's DHCP DNS servers are never overwritten by legacy `networksetup` overrides. Resolver dictionaries are removed on disconnect and orphaned ones are swept on startup.
+- **Linux:** `systemd-resolved` (`resolvectl`) routing-only domains (`~domain`) when available, otherwise appended to `/etc/resolv.conf`.
+- **Windows:** routing and DNS are handled by the bundled `vpnc-script.js` through the Wintun adapter.
 
 ### 3. Customizable Split-DNS Domains per Profile
 - **GUI Configuration:** Directly define comma- or space-separated match domains (e.g., `company.com, company.com.tr`) under **Edit Profile -> Split DNS Domains**.
@@ -25,60 +25,95 @@ This project is an enhanced fork of the official [OpenConnect GUI](https://gui.o
 
 ### 4. Password Saving & Management
 - **Profile Password Storage:** Easily set or update passwords directly in the **Edit Profile** dialog, with a toggleable Show/Hide button.
-- **Encrypted Persistence:** Passwords are encrypted locally (`CryptData`) when the "Save password" checkbox is enabled.
+- **Encrypted Persistence:** Passwords are encrypted locally with the Windows Data Protection API (DPAPI) on Windows (`CryptData`).
 - **Auto-Remember on Connect:** Passwords entered during the initial connection prompt are remembered automatically for future one-click logins.
+
+### 5. Headless CLI (`ocg-cli`)
+A separate, GUI-less front-end that shares the same connection core — useful on Linux servers with no graphical session.
+- **Commands:** `list` · `connect <profile>` · `disconnect [profile]` · `status [profile]`
+- **Options:** `--username`, `--password-file <file|->`, `--group`, `--pin`, `--trust-tofu`, `--foreground`, `--log-level <err|info|debug|trace>`, `--json`
+- **Background by default:** `connect` daemonizes (POSIX `fork` + readiness pipe) and writes a per-profile state file used by `disconnect`/`status`.
+- **Safe by default:** an unknown server certificate is refused unless `--trust-tofu` is given; secrets are read from a file or stdin, never from the command line.
 
 ---
 
 ## Supported Platforms
-- macOS 12.0 and newer (Apple Silicon ARM64 & Intel x86_64)
-- Microsoft Windows 10 and newer
-- Linux (x86_64) — packaged as a `.deb` (Qt 6 + libopenconnect from the distro)
+- **macOS** 12.0 and newer (Apple Silicon ARM64 & Intel x86_64)
+- **Windows** 10 and newer (MinGW/MSYS2 build, NSIS installer)
+- **Linux** (x86_64) — packaged as a `.deb` (Qt 6 + libopenconnect from the distro)
+
+CI (GitHub Actions) builds all three on every push to `main` and publishes the
+artifacts to a rolling `continuous` pre-release:
+- `OpenConnect-GUI-macos-arm64.zip`
+- `openconnect-gui-<ver>-oc-<ocver>-win64.exe` (installer)
+- `openconnect-gui_<ver>_amd64.deb`
 
 ---
 
-## Building from Source (macOS)
+## Installing
 
-### Prerequisites (via Homebrew)
+### macOS
+Download the `.zip`, unzip, clear the quarantine flag (unsigned build) and run
+with network privileges:
 ```bash
-brew install qt@6 openconnect gnutls spdlog fmt cmake
+unzip OpenConnect-GUI-macos-arm64.zip
+xattr -dr com.apple.quarantine OpenConnect-GUI.app
+sudo OpenConnect-GUI.app/Contents/MacOS/OpenConnect-GUI
 ```
 
-### Build & Run
+### Windows
+Run the `openconnect-gui-*-win64.exe` installer. It bundles openconnect
+(≥ 9.21, required for the STRAP/TLSv1.3 fix on newer Cisco ASA/FTD gateways),
+Qt 6, GnuTLS and the Wintun driver. The application requests administrator
+rights via UAC.
+
+### Linux
 ```bash
+sudo apt install ./openconnect-gui_<ver>_amd64.deb
+```
+The package installs both `openconnect-gui` (GUI) and `ocg-cli` (headless),
+the bundled `vpnc-script` (split-DNS), a desktop entry and an icon. It depends
+only on Qt 6, `libopenconnect5` and GnuTLS — `fmt`/`spdlog` are embedded — so
+the same `.deb` installs across Ubuntu releases.
+
+CLI quick start:
+```bash
+ocg-cli list
+sudo ocg-cli connect "Office"          # daemonizes
+ocg-cli status
+sudo ocg-cli disconnect "Office"
+```
+
+---
+
+## Building from Source
+
+### macOS
+```bash
+brew install qt@6 openconnect gnutls spdlog fmt cmake
 cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
 cmake --build build --config Release
-
-# Run with required network privileges:
 sudo ./build/bin/OpenConnect-GUI.app/Contents/MacOS/OpenConnect-GUI
 ```
 
----
-
-## Building from Source (Linux)
-
-### Prerequisites (Debian/Ubuntu)
+### Linux (Debian/Ubuntu)
 ```bash
 sudo apt install build-essential cmake ninja-build pkg-config \
     qt6-base-dev qt6-base-dev-tools qt6-scxml-dev \
     libopenconnect-dev libgnutls28-dev libspdlog-dev libfmt-dev
-```
-
-### Build, test and package
-```bash
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel "$(nproc)"
-
-# The app needs root to configure routes/DNS:
-sudo ./build/bin/openconnect-gui
-
-# Build the .deb:
-cd build && cpack -G DEB -C Release
+cd build && cpack -G DEB -C Release      # -> openconnect-gui_<ver>_amd64.deb
 ```
 
-The `.deb` installs the binary, the bundled `vpnc-script` (which carries the
-split-DNS handling) and a desktop entry. Dependencies are resolved from the
-distro packages.
+### Windows (MSYS2 / MinGW-w64)
+Two helper scripts drive the whole dependency + application build:
+```bash
+./contrib/build_deps_mingw@msys2.sh      # builds openconnect v9.21 + deps
+./contrib/build_mingw@msys2.sh           # builds the app and the NSIS package
+```
+The binaries end up in `build/bin/` and the installer
+`openconnect-gui-*-win64.exe` in the build directory.
 
 ---
 
