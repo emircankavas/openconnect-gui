@@ -41,7 +41,6 @@ StoredServer::StoredServer()
     , m_ad_user_expiry_days{ -999 }
     , m_ad_srv_expiry_days{ -999 }
 {
-    set_window(nullptr);
 }
 
 // LCA: drop this define from whole project...
@@ -418,11 +417,6 @@ QString StoredServer::get_client_cert_pin()
 QString StoredServer::get_ca_cert_pin()
 {
     return m_ca_cert.cert_pin();
-}
-
-void StoredServer::set_window(QWidget* w)
-{
-    m_client.set_window(w);
 }
 
 void StoredServer::set_batch_mode(const bool mode)

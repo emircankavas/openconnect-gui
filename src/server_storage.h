@@ -96,8 +96,6 @@ public:
 
     bool client_is_complete() const;
 
-    void set_window(QWidget* w);
-
     int set_client_key(const QString& filename);
 
     QString m_last_err;

@@ -19,14 +19,13 @@
 
 #include "key.h"
 #include "common.h"
-#include <QInputDialog>
+#include "keyprompt.h"
 extern "C" {
 #include <gnutls/pkcs11.h>
 }
 
 Key::Key()
     : privkey(nullptr)
-    , w(nullptr)
     , imported(false)
 {
 }
@@ -48,7 +47,7 @@ void Key::clear()
     }
 }
 
-static int import_Key(QWidget* w, gnutls_x509_privkey_t* privkey,
+static int import_Key(gnutls_x509_privkey_t* privkey,
     gnutls_datum_t* raw)
 {
     if (raw->size == 0) {
@@ -58,13 +57,10 @@ static int import_Key(QWidget* w, gnutls_x509_privkey_t* privkey,
     gnutls_x509_privkey_init(privkey);
 
     int ret = gnutls_x509_privkey_import2(*privkey, raw, GNUTLS_X509_FMT_PEM, NULL, 0);
-    if (ret == GNUTLS_E_DECRYPTION_FAILED && w != NULL) {
-        bool ok;
-        QString text = QInputDialog::getText(w,
-            QLatin1String("This file requires a password"),
-            QLatin1String("Please enter your password"),
-            QLineEdit::Password, QString(), &ok);
-        if (ok == false) {
+    if (ret == GNUTLS_E_DECRYPTION_FAILED) {
+        QString text;
+        if (!ask_key_password(QLatin1String("This file requires a password"),
+                QLatin1String("Please enter your password"), text)) {
             ret = -1;
             goto fail;
         }
@@ -93,7 +89,7 @@ int Key::import_pem(const QByteArray& data)
     raw.data = (unsigned char*)data.constData();
     raw.size = data.size();
 
-    int ret = import_Key(this->w, &this->privkey, &raw);
+    int ret = import_Key(&this->privkey, &raw);
     if (ret < 0) {
         this->last_err = gnutls_strerror(ret);
         return -1;
@@ -107,11 +103,6 @@ void Key::set(const gnutls_x509_privkey_t privkey)
     clear();
     this->privkey = privkey;
     this->imported = true;
-}
-
-void Key::set_window(QWidget* w)
-{
-    this->w = w;
 }
 
 int Key::data_export(QByteArray& data)
@@ -164,7 +155,7 @@ int Key::import_file(const QString& File)
         return -1;
     }
 
-    ret = import_Key(this->w, &this->privkey, &contents);
+    ret = import_Key(&this->privkey, &contents);
     gnutls_free(contents.data);
     if (ret < 0) {
         this->last_err = gnutls_strerror(ret);

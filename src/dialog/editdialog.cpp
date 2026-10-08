@@ -161,8 +161,6 @@ EditDialog::EditDialog(QString server, QWidget* parent)
             ss->m_last_err.isEmpty() ? tr("Some server information failed to load") : ss->m_last_err);
     }
 
-    ss->set_window(this);
-
     QString txt = ss->get_label();
     ui->nameEdit->setText(txt);
     if (txt.isEmpty() == true) {

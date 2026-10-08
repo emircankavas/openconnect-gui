@@ -26,6 +26,11 @@
 
 #include "FileLogger.h"
 #include "logger.h"
+#include "keyprompt.h"
+
+// The GUI installs a Qt dialog for encrypted-key passphrases; ocg-core (used
+// by the CLI too) must not depend on QtWidgets.
+#include "dialog/MyInputDialog.h"
 
 // POSIX signal handling (SIGPIPE) needs an explicit include; it used to come
 // in transitively on Windows through the winsock/iphlpapi headers.
@@ -253,6 +258,13 @@ int main(int argc, char* argv[])
     const QString profileName{ parser.value(QLatin1String("server")) };
     MainWindow mainWindow(nullptr, haveTray, profileName);
     app.setActivationWindow(&mainWindow);
+
+    // Encrypted key / PKCS#12 passphrase prompt for the GUI.
+    set_key_password_prompt([&mainWindow](const QString& title, const QString& label, QString& out) {
+        MyInputDialog dialog(&mainWindow, title, label, QLineEdit::Password);
+        dialog.show();
+        return dialog.result(out);
+    });
 #if defined(Q_OS_MACOS)
     setupMacDockHandler(&mainWindow);
     app.installEventFilter(new MacAppEventFilter(&mainWindow, &app));
