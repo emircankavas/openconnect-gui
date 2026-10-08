@@ -203,31 +203,53 @@ mkdir -p pkg/nsis && cd pkg/nsis
 
 set -e
 
-cp ${MINGW_PREFIX}/bin/libffi-8.dll .
-cp ${MINGW_PREFIX}/bin/libgcc_*-1.dll .
-cp ${MINGW_PREFIX}/bin/libgmp-10.dll .
-cp ${MINGW_PREFIX}/bin/libgnutls-30.dll .
-cp ${MINGW_PREFIX}/bin/libhogweed-6.dll .
-cp ${MINGW_PREFIX}/bin/libintl-8.dll .
-cp ${MINGW_PREFIX}/bin/libnettle-8.dll .
-cp ${MINGW_PREFIX}/bin/libp11-kit-0.dll .
-cp ${MINGW_PREFIX}/bin/libtasn1-6.dll .
-cp ${MINGW_PREFIX}/bin/libwinpthread-1.dll .
-cp ${MINGW_PREFIX}/bin/libxml2-16.dll .
-cp ${MINGW_PREFIX}/bin/zlib1.dll .
-cp ${MINGW_PREFIX}/bin/libstoken-1.dll .
-cp ${MINGW_PREFIX}/bin/liblz4.dll .
-cp ${MINGW_PREFIX}/bin/libiconv-2.dll .
-cp ${MINGW_PREFIX}/bin/libunistring-5.dll .
-cp ${MINGW_PREFIX}/bin/libidn2-0.dll .
-cp ${MINGW_PREFIX}/bin/liblzma-5.dll .
-cp ${MINGW_PREFIX}/bin/libbrotlicommon.dll .
-cp ${MINGW_PREFIX}/bin/libbrotlidec.dll .
-cp ${MINGW_PREFIX}/bin/libzstd.dll .
-cp ${MINGW_PREFIX}/bin/libbrotlienc.dll .
+# Copy a runtime DLL by base name, tolerating soname bumps (e.g. nettle 4
+# renamed libhogweed-6.dll -> libhogweed-4.dll).
+copy_dll() {
+    local src
+    src=$(ls "${MINGW_PREFIX}/bin/${1}"*.dll 2>/dev/null | head -n1)
+    if [ -n "$src" ]; then
+        cp "$src" .
+    else
+        echo "warning: ${1}*.dll not found under ${MINGW_PREFIX}/bin"
+    fi
+}
+
+copy_dll libffi
+copy_dll libgcc_s
+copy_dll libgmp
+copy_dll libgnutls
+copy_dll libhogweed
+copy_dll libintl
+copy_dll libnettle
+copy_dll libp11-kit
+copy_dll libtasn1
+copy_dll libwinpthread
+copy_dll libxml2
+copy_dll zlib1
+copy_dll libstoken
+copy_dll liblz4
+copy_dll libiconv
+copy_dll libunistring
+copy_dll libidn2
+copy_dll liblzma
+copy_dll libbrotlicommon
+copy_dll libbrotlidec
+copy_dll libzstd
+copy_dll libbrotlienc
 cp ../../openconnect/build-${BUILD_ARCH}/.libs/libopenconnect-5.dll .
 #cp ../../openconnect/build-${BUILD_ARCH}/.libs/wintun.dll .
 cp ../../openconnect/build-${BUILD_ARCH}/.libs/openconnect.exe .
+
+# Sweep any remaining transitive dependencies of the binaries we just copied
+# (toolchain soname bumps can add new libs the hardcoded list does not know).
+for bin in *.dll openconnect.exe; do
+    [ -f "$bin" ] || continue
+    ldd "$bin" 2>/dev/null | awk '/=> \/mingw64\/bin\//{print $3}'
+done | sort -u | while read -r dep; do
+    base=$(basename "$dep")
+    [ -f "$base" ] || cp "$dep" .
+done
 
 echo "Getting vpnc-script from https://gitlab.com/openconnect/vpnc-scripts/..."
 
