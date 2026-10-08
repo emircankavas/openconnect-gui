@@ -29,9 +29,29 @@ target_include_directories(ocg-core PUBLIC
 )
 
 target_link_libraries(ocg-core PUBLIC
-    spdlog::spdlog
     Qt6::Core
 )
+
+# Logging. On Linux we pull spdlog in header-only (with a header-only fmt) so
+# the produced binaries do not depend on versioned sonames like libfmt.so.9 /
+# libspdlog.so.1.12 — those change every distro release, which would make a
+# .deb built on one Ubuntu uninstallable on another. Elsewhere keep the normal
+# shared-library target.
+if(UNIX AND NOT APPLE AND TARGET spdlog::spdlog_header_only)
+    if(TARGET fmt::fmt-header-only)
+        target_link_libraries(ocg-core PUBLIC fmt::fmt-header-only)
+    endif()
+    target_compile_definitions(ocg-core PUBLIC
+        SPDLOG_HEADER_ONLY
+        SPDLOG_FMT_EXTERNAL
+    )
+    if(TARGET fmt::fmt-header-only)
+        target_compile_definitions(ocg-core PUBLIC FMT_HEADER_ONLY)
+    endif()
+    target_link_libraries(ocg-core PUBLIC spdlog::spdlog_header_only)
+else()
+    target_link_libraries(ocg-core PUBLIC spdlog::spdlog)
+endif()
 
 set_property(SOURCE ${PROJECT_NAME}.cpp PROPERTY SKIP_AUTOGEN ON)
 set_property(SOURCE timestamp.cpp PROPERTY SKIP_AUTOGEN ON)
