@@ -392,11 +392,14 @@ jobs:
           cat /tmp/notes.md
 
           if [ "$TAG" = "continuous" ]; then
-            # Rolling release: recreate so the tag follows the tip of main.
-            gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
-            gh release create "$TAG" dist/OpenConnect-GUI-macos-arm64.zip \
-              --target "$GITHUB_SHA" \
-              --title "$TITLE" --notes-file /tmp/notes.md --prerelease
+            # Rolling release shared by all three platforms. Never delete it:
+            # that would wipe the .deb/.exe uploaded by the Linux/Windows jobs.
+            # Create once (if absent), then upload/refresh just our asset.
+            gh release view "$TAG" >/dev/null 2>&1 || \
+              gh release create "$TAG" --target "$GITHUB_SHA" \
+                --title "$TITLE" --notes-file /tmp/notes.md --prerelease
+            gh release upload "$TAG" dist/OpenConnect-GUI-macos-arm64.zip --clobber
+            gh release edit "$TAG" --notes-file /tmp/notes.md
           elif gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG exists — refreshing asset"
             gh release upload "$TAG" dist/OpenConnect-GUI-macos-arm64.zip --clobber
