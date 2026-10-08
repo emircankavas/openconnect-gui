@@ -21,6 +21,9 @@
 #include "NewProfileDialog.h"
 #include "ProfileCard.h"
 #include "ToggleSwitch.h"
+#include "MyCertMsgBox.h"
+#include "MyInputDialog.h"
+#include "MyMsgBox.h"
 #include "config.h"
 #include "editdialog.h"
 #include "logdialog.h"
@@ -489,6 +492,84 @@ void MainWindow::vpn_status_changed(int connected)
 void MainWindow::vpn_status_changed(int connected, QString& dns, QString& ip, QString& ip6, QString& cstp_cipher, QString& dtls_cipher)
 {
     vpn_status_changed(ui->serverList->currentText(), connected, dns, ip, ip6, cstp_cipher, dtls_cipher);
+}
+
+// ---- VpnUi implementation (bridge to the existing widgets) -----------------
+
+bool MainWindow::promptText(const QString& title, const QString& label, bool secret,
+    const QString& banner, const QString& message, QString& out)
+{
+    MyInputDialog dialog(this, title, label, secret ? QLineEdit::Password : QLineEdit::Normal);
+    dialog.set_banner(banner, message);
+    dialog.show();
+    return dialog.result(out);
+}
+
+bool MainWindow::promptSelect(const QString& title, const QString& label,
+    const QStringList& options, const QString& banner, const QString& message, QString& out)
+{
+    MyInputDialog dialog(this, title, label, options);
+    dialog.set_banner(banner, message);
+    dialog.show();
+    return dialog.result(out);
+}
+
+bool MainWindow::confirmPeerCert(const QString& text, const QString& hostInfo,
+    const QString& details, const QString& acceptText)
+{
+    MyCertMsgBox msgBox(this, text, hostInfo, acceptText, details);
+    msgBox.show();
+    return msgBox.result();
+}
+
+bool MainWindow::confirmBanner(const QString& banner)
+{
+    MyMsgBox msgBox(this, banner, QString(""), QString("Accept"));
+    msgBox.show();
+    return msgBox.result();
+}
+
+QString MainWindow::pinPrompt(const QString& tokenUrl, const QString& label, unsigned flags)
+{
+    QString type = tr("user");
+    if (flags & GNUTLS_PIN_SO) {
+        type = tr("security officer");
+    }
+
+    QString outtext = tr("Please enter the %1 PIN for %2.").arg(type).arg(label);
+    if (flags & GNUTLS_PKCS11_PIN_FINAL_TRY) {
+        outtext += tr(" This is the FINAL try!");
+    }
+    if (flags & GNUTLS_PKCS11_PIN_COUNT_LOW) {
+        outtext += tr(" Only few tries before token lock!");
+    }
+
+    MyInputDialog dialog(this, tokenUrl, outtext, QLineEdit::Password);
+    dialog.show();
+
+    QString text;
+    if (!dialog.result(text)) {
+        return QString();
+    }
+    return text;
+}
+
+void MainWindow::onStats(const QString& profileName, const struct oc_stats* stats, const QString& dtls)
+{
+    updateStats(profileName, stats, dtls);
+}
+
+void MainWindow::onStatus(const QString& profileName, status_t status,
+    const QString& dns, const QString& ip, const QString& ip6,
+    const QString& cstp, const QString& dtls)
+{
+    QString d = dns, i = ip, i6 = ip6, c = cstp, dt = dtls;
+    vpn_status_changed(profileName, status, d, i, i6, c, dt);
+}
+
+void MainWindow::requestDisconnect(const QString& profileName)
+{
+    disconnectProfile(profileName);
 }
 
 void MainWindow::vpn_status_changed(const QString& profileName, int connected)
@@ -1341,6 +1422,7 @@ void MainWindow::on_connectClicked()
     /* ss is now deallocated by vpninfo */
     try {
         vpninfo = new VpnInfo(QStringLiteral("AnyConnect-compatible OpenConnect GUI VPN Agent"), ss, this);
+        vpninfo->set_default_log_level(this->get_log_level());
     } catch (std::exception& ex) {
         QMessageBox::information(this,
             qApp->applicationName(),

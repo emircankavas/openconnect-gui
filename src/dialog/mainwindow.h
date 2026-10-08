@@ -20,6 +20,7 @@
 #pragma once
 
 #include "common.h"
+#include "vpnui.h"
 #include "OcSettings.h"
 
 #include <QCoreApplication>
@@ -54,12 +55,6 @@ class QLabel;
 namespace Ui {
 class MainWindow;
 }
-enum status_t {
-    STATUS_DISCONNECTING,
-    STATUS_DISCONNECTED,
-    STATUS_CONNECTING,
-    STATUS_CONNECTED
-};
 
 #include <memory>
 #include <QMap>
@@ -80,11 +75,27 @@ struct VpnConnection {
     QFuture<void> future;
 };
 
-class MainWindow : public QMainWindow {
+class MainWindow : public QMainWindow, public VpnUi {
     Q_OBJECT
 public:
     explicit MainWindow(QWidget* parent = 0, bool useTray = false, const QString profileName = {});
     ~MainWindow();
+
+    // VpnUi implementation (used by the connection core, VpnInfo)
+    bool promptText(const QString& title, const QString& label, bool secret,
+        const QString& banner, const QString& message, QString& out) override;
+    bool promptSelect(const QString& title, const QString& label,
+        const QStringList& options, const QString& banner, const QString& message,
+        QString& out) override;
+    bool confirmPeerCert(const QString& text, const QString& hostInfo,
+        const QString& details, const QString& acceptText) override;
+    bool confirmBanner(const QString& banner) override;
+    QString pinPrompt(const QString& tokenUrl, const QString& label, unsigned flags) override;
+    void onStats(const QString& profileName, const struct oc_stats* stats, const QString& dtls) override;
+    void onStatus(const QString& profileName, status_t status,
+        const QString& dns, const QString& ip, const QString& ip6,
+        const QString& cstp, const QString& dtls) override;
+    void requestDisconnect(const QString& profileName) override;
 
     void updateStats(const struct oc_stats* stats, QString dtls);
     void updateStats(const QString& profileName, const struct oc_stats* stats, QString dtls);

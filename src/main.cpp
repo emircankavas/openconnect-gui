@@ -159,26 +159,9 @@ int pin_callback(void* userdata, int attempt, const char* token_url,
     const char* token_label, unsigned flags, char* pin,
     size_t pin_max)
 {
-    QString type = QObject::tr("user");
-    if (flags & GNUTLS_PIN_SO) {
-        type = QObject::tr("security officer");
-    }
-
-    QString outtext = QObject::tr("Please enter the %1 PIN for %2.").arg(type).arg(token_label);
-    if (flags & GNUTLS_PKCS11_PIN_FINAL_TRY) {
-        outtext += QObject::tr(" This is the FINAL try!");
-    }
-    if (flags & GNUTLS_PKCS11_PIN_COUNT_LOW) {
-        outtext += QObject::tr(" Only few tries before token lock!");
-    }
-
     MainWindow* w = (MainWindow*)userdata;
-    MyInputDialog dialog(w, QLatin1String(token_url), outtext, QLineEdit::Password);
-    dialog.show();
-
-    QString text;
-    bool ok = dialog.result(text);
-    if (ok == false) {
+    QString text = w->pinPrompt(QLatin1String(token_url), QLatin1String(token_label), flags);
+    if (text.isNull()) {
         return -1;
     }
 
