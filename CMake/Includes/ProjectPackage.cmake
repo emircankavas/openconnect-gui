@@ -102,9 +102,22 @@ elseif(UNIX AND NOT APPLE)
     set(CPACK_DEBIAN_PACKAGE_MAINTAINER "OpenConnect-GUI Team <${PRODUCT_NAME_COMPANY_DOMAIN}>")
     set(CPACK_DEBIAN_PACKAGE_SECTION "net")
     set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
-    set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+    set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS OFF)
+    # Hand-written Depends with alternatives. Ubuntu renamed several libraries
+    # during the time_t transition (24.04: libqt6gui6t64) and dropped the
+    # suffix again later (26.04: libqt6gui6); depending on the exact name makes
+    # a .deb built on one release uninstallable on another. Every affected
+    # package gets both names. The SONAMEs are identical across releases, so a
+    # binary built against the older Qt runs on the newer one.
     set(CPACK_DEBIAN_PACKAGE_DEPENDS
-        "libqt6core6 | libqt6core6t64, libqt6gui6, libqt6widgets6, libqt6network6, libqt6statemachine6, libopenconnect5, libgnutls30 | libgnutls30t64")
+        "libc6 (>= 2.34), libstdc++6 (>= 11), libgcc-s1, \
+libqt6core6 | libqt6core6t64, \
+libqt6gui6 | libqt6gui6t64, \
+libqt6widgets6 | libqt6widgets6t64, \
+libqt6network6 | libqt6network6t64, \
+libqt6statemachine6, \
+libopenconnect5 (>= 8.20), \
+libgnutls30 | libgnutls30t64")
     # runtime tools the connection needs on Linux
     set(CPACK_DEBIAN_PACKAGE_RECOMMENDS
         "systemd-resolved | resolvconf, iproute2, ldap-utils")
