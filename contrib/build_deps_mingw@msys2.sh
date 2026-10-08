@@ -74,7 +74,6 @@ pacman --needed --noconfirm -S \
     base-devel \
     autotools \
     mingw-w64-x86_64-toolchain \
-    mingw-w64-x86_64-jq \
     mingw-w64-${BUILD_ARCH}-gcc \
     mingw-w64-${BUILD_ARCH}-make \
     mingw-w64-${BUILD_ARCH}-gnutls \
@@ -89,6 +88,12 @@ pacman --needed --noconfirm -S \
     mingw-w64-${BUILD_ARCH}-lz4 \
     mingw-w64-${BUILD_ARCH}-nsis \
     mingw-w64-${BUILD_ARCH}-libproxy
+
+# jq is only needed for code signing (contrib/sign.sh). It is not required for a
+# normal build and, depending on the MSYS2 db snapshot, may be unavailable in
+# mingw64; install it best-effort so the build does not fail without it.
+pacman --needed --noconfirm -S mingw-w64-x86_64-jq || \
+    echo "warning: mingw-w64-x86_64-jq not available; skipping (needed only for signing)"
 
 set +e
 
