@@ -1,0 +1,174 @@
+name: Linux Build & Release (.deb)
+
+on:
+  push:
+    branches: [ main, linux-support ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Create a release with this tag (e.g. v1.6.3). Leave empty to only build.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  build-linux-deb:
+    name: Build Linux .deb
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build git pkg-config file \
+            qt6-base-dev qt6-base-dev-tools qt6-scxml-dev \
+            libopenconnect-dev libgnutls28-dev libspdlog-dev libfmt-dev \
+            desktop-file-utils
+
+      - name: Configure (CMake)
+        run: |
+          set -euxo pipefail
+          cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE="${BUILD_TYPE}"
+
+      - name: Build
+        run: cmake --build build --parallel "$(nproc)"
+
+      - name: Validate desktop entry
+        run: desktop-file-validate packaging/openconnect-gui.desktop
+
+      - name: Check for unresolved shared libraries
+        run: |
+          set -euo pipefail
+          BIN=build/bin/openconnect-gui
+          echo "== missing libraries? =="
+          if ldd "$BIN" | grep -i "not found"; then
+            echo "::error::some linked libraries are missing"
+            exit 1
+          fi
+          echo "== linked libraries =="
+          ldd "$BIN"
+
+      - name: Smoke test — the binary must load and parse args
+        run: |
+          set -uo pipefail
+          BIN=build/bin/openconnect-gui
+          OUT="$(QT_QPA_PLATFORM=offscreen "$BIN" --version 2>&1 || true)"
+          echo "$OUT"
+          if ! printf '%s' "$OUT" | grep -q "OpenConnect VPN"; then
+            echo "::error::--version did not report the application name"
+            exit 1
+          fi
+          if printf '%s' "$OUT" | grep -qiE "error while loading|symbol lookup|cannot open shared object"; then
+            echo "::error::the binary failed to load a library"
+            exit 1
+          fi
+          echo "OK: binary loads and runs."
+
+      - name: Build .deb package
+        run: |
+          set -euxo pipefail
+          cd build
+          cpack -G DEB -C "${BUILD_TYPE}"
+          ls -lh ./*.deb
+
+      - name: Inspect package
+        run: |
+          set -euxo pipefail
+          DEB="$(ls build/*.deb | head -n1)"
+          dpkg-deb -I "$DEB"
+          dpkg-deb -c "$DEB"
+          DEB_BASENAME="$(basename "$DEB")"
+          echo "ARTIFACT_FILE=$DEB_BASENAME" >> "$GITHUB_ENV"
+          cp "$DEB" "$GITHUB_WORKSPACE/$DEB_BASENAME"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenConnect-GUI-linux-deb
+          path: ${{ env.ARTIFACT_FILE }}
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Publish release (.deb)
+    needs: build-linux-deb
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download built artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: OpenConnect-GUI-linux-deb
+          path: dist
+
+      - name: Resolve release tag and name
+        id: rel
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ -n "${{ inputs.release_tag }}" ]; then
+            TAG="${{ inputs.release_tag }}"
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            TAG="${GITHUB_REF_NAME}"
+          else
+            TAG="continuous"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Resolved: tag=$TAG"
+
+      - name: Create / update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.rel.outputs.tag }}"
+          ASSET="$(ls dist/*.deb | head -n1)"
+          echo "Asset: $ASSET"
+
+          NOTES="$(mktemp)"
+          cat > "$NOTES" <<'EOF'
+          Linux x86_64 build of OpenConnect-GUI (self-contained .deb).
+
+          ### Install
+          ```bash
+          sudo apt install ./openconnect-gui_*.deb
+          ```
+
+          > Requires Qt 6 and libopenconnect, pulled in automatically as
+          > dependencies. The bundled vpnc-script provides per-profile
+          > split-DNS via systemd-resolved (resolvectl) or resolv.conf.
+          EOF
+
+          if [ "$TAG" = "continuous" ]; then
+            gh release view "$TAG" >/dev/null 2>&1 || \
+              gh release create "$TAG" --target "$GITHUB_SHA" \
+                --title "Continuous build" --notes-file "$NOTES" --prerelease
+            gh release upload "$TAG" "$ASSET" --clobber
+          elif gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$ASSET" --clobber
+          else
+            gh release create "$TAG" "$ASSET" --target "$GITHUB_SHA" \
+              --title "$TAG" --notes-file "$NOTES"
+          fi
+
+          gh release view "$TAG" --json tagName,name,isPrerelease,assets

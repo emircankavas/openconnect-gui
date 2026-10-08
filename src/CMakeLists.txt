@@ -197,11 +197,37 @@ if(UNIX)
 endif()
 
 # install executable
-install(TARGETS ${PROJECT_NAME}
-    RUNTIME DESTINATION . COMPONENT App
-    BUNDLE DESTINATION . COMPONENT App
-    LIBRARY DESTINATION . COMPONENT App
-)
+if(UNIX AND NOT APPLE)
+    include(GNUInstallDirs)
+    install(TARGETS ${PROJECT_NAME}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT App
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT App
+    )
+
+    # Bundled vpnc-script (carries the split-DNS handling). Installed system-wide
+    # so the app finds it at DEFAULT_VPNC_SCRIPT (/usr/share/openconnect-gui).
+    install(PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/Resources/vpnc-script
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/openconnect-gui
+        COMPONENT App
+    )
+
+    # Desktop entry + icon so the app appears in the menu.
+    install(FILES ${CMAKE_SOURCE_DIR}/packaging/${PROJECT_NAME}.desktop
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/applications
+        COMPONENT App
+    )
+    install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/Resources/mono_lock.png
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/256x256/apps
+        RENAME ${PROJECT_NAME}.png
+        COMPONENT App
+    )
+else()
+    install(TARGETS ${PROJECT_NAME}
+        RUNTIME DESTINATION . COMPONENT App
+        BUNDLE DESTINATION . COMPONENT App
+        LIBRARY DESTINATION . COMPONENT App
+    )
+endif()
 
 # fixup the bundle
 get_target_property(QT_LIBRARY_DIR Qt6::Core LOCATION)
@@ -278,11 +304,16 @@ if(MINGW)
     )
 endif()
 
-install(CODE "
-    include(BundleUtilities)
-    if(APPLE)
-        set(BU_CHMOD_BUNDLE_ITEMS on)
-    endif()
-    fixup_bundle(\"${APPS}\" \"${additionalLib}\" \"${libSearchDirs}\")
-    " DESTINATION . COMPONENT App
-)
+# Qt runtime (platform plugin, TLS backend, styles) is only bundled into the
+# app dir for MinGW/Windows and macOS. On Linux the dependencies come from the
+# distro packages declared as .deb Depends, so there is nothing to fix up.
+if(MINGW OR APPLE)
+    install(CODE "
+        include(BundleUtilities)
+        if(APPLE)
+            set(BU_CHMOD_BUNDLE_ITEMS on)
+        endif()
+        fixup_bundle(\"${APPS}\" \"${additionalLib}\" \"${libSearchDirs}\")
+        " DESTINATION . COMPONENT App
+    )
+endif()

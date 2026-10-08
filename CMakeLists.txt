@@ -58,10 +58,18 @@ endif()
 
 add_subdirectory(src)
 
-install(FILES LICENSE.txt
-    DESTINATION .
-    COMPONENT App
-)
+if(UNIX AND NOT APPLE)
+    install(FILES LICENSE.txt
+        DESTINATION share/doc/openconnect-gui
+        RENAME copyright
+        COMPONENT App
+    )
+else()
+    install(FILES LICENSE.txt
+        DESTINATION .
+        COMPONENT App
+    )
+endif()
 
 include(clang-format)
 include(git_revision_main)

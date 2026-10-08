@@ -406,6 +406,25 @@ static void setup_tun_vfn(void* privdata)
         vpncScriptFullPath = native_path(QCoreApplication::applicationDirPath()
                                          + "/" + QString(DEFAULT_VPNC_SCRIPT));
 
+#ifndef _WIN32
+    // On Linux the script we ship may be absent (e.g. a distro build that
+    // only installed the binary). Fall back to locations provided by the
+    // distribution so the connection can still come up.
+    if (!QFile::exists(vpncScriptFullPath)) {
+        const QStringList fallbacks{
+            QStringLiteral("/usr/share/openconnect-gui/vpnc-script"),
+            QStringLiteral("/usr/share/vpnc-scripts/vpnc-script"),
+            QStringLiteral("/etc/vpnc/vpnc-script"),
+        };
+        for (const QString& candidate : fallbacks) {
+            if (QFile::exists(candidate)) {
+                vpncScriptFullPath = native_path(candidate);
+                break;
+            }
+        }
+    }
+#endif
+
     if (!vpn->ss->get_interface_name().isEmpty())
         interface_name = vpn->ss->get_interface_name().toUtf8();
 #ifdef _WIN32
