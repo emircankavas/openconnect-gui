@@ -367,6 +367,29 @@ Leave blank for default (usually the server name when using wintun).</string>
        </property>
       </widget>
      </item>
+     <item row="13" column="0">
+      <widget class="QLabel" name="reportedOsLabel">
+       <property name="text">
+        <string>Reported OS</string>
+       </property>
+       <property name="toolTip">
+        <string>OS type reported to the server (openconnect --os). Some gateways apply a different access/authentication policy per OS. Leave at "Application default" unless you need to override it.</string>
+       </property>
+      </widget>
+     </item>
+     <item row="13" column="1">
+      <widget class="QComboBox" name="reportedOsComboBox">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+       <property name="toolTip">
+        <string>OS type reported to the server. Affects server-side dynamic access policies.</string>
+       </property>
+      </widget>
+     </item>
      <item row="11" column="0">
       <widget class="QLabel" name="vpncScriptLabel">
        <property name="text">
