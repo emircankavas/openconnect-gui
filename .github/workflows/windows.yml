@@ -41,6 +41,10 @@ jobs:
           update: true
           path-type: inherit
 
+      - name: Sync MSYS2 package database
+        shell: cmd
+        run: c:\msys64\msys2_shell.cmd -defterm -no-start -mingw64 -c "pacman -Sy --noconfirm"
+
       - name: Fetch and build dependencies (openconnect, wintun, ...)
         shell: cmd
         run: c:\msys64\msys2_shell.cmd -defterm -no-start -mingw64 -where . -c "./contrib/build_deps_mingw@msys2.sh"
