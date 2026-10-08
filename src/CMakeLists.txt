@@ -205,14 +205,20 @@ target_link_libraries (${PROJECT_NAME}
 add_dependencies(${PROJECT_NAME} qt-solutions-${qt-solutions-TAG})
 
 if(UNIX)
-    target_link_libraries(${PROJECT_NAME}
+    target_link_libraries(ocg-core PUBLIC
         Threads::Threads
     )
     if(APPLE)
-        target_link_libraries (${PROJECT_NAME}
+        target_link_libraries(ocg-core PUBLIC
             ${SECURITY_LIBRARY}
         )
     endif()
+endif()
+
+if(WIN32)
+    # ioctlsocket (used by vpninfo) lives in ws2_32; provide it to both the GUI
+    # and the headless CLI through the core library.
+    target_link_libraries(ocg-core PUBLIC ws2_32)
 endif()
 
 # ---------------------------------------------------------------------------
