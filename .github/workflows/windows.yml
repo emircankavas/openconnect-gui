@@ -38,12 +38,11 @@ jobs:
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
-          update: true
+          # Keep the runner's coherent snapshot: force-updating pulls a
+          # bleeding-edge mingw-w64 whose headers break openconnect's compat.c
+          # (sec_api/stdlib_s.h). jq (the only stale package) is optional now.
+          update: false
           path-type: inherit
-
-      - name: Sync MSYS2 package database
-        shell: cmd
-        run: c:\msys64\msys2_shell.cmd -defterm -no-start -mingw64 -c "pacman -Sy --noconfirm"
 
       - name: Fetch and build dependencies (openconnect, wintun, ...)
         shell: cmd
