@@ -210,17 +210,6 @@ EditDialog::EditDialog(QString server, QWidget* parent)
     ui->vpncScriptEdit->setText(ss->get_vpnc_script_filename());
     ui->splitDnsDomainsEdit->setText(ss->get_split_dns_domains());
 
-    // Reported OS (openconnect --os). "(Application default)" -> empty value.
-    ui->reportedOsComboBox->addItem(tr("(Application default)"), QString());
-    ui->reportedOsComboBox->addItem(QStringLiteral("win"), QStringLiteral("win"));
-    ui->reportedOsComboBox->addItem(QStringLiteral("mac-intel"), QStringLiteral("mac-intel"));
-    ui->reportedOsComboBox->addItem(QStringLiteral("linux"), QStringLiteral("linux"));
-    ui->reportedOsComboBox->addItem(QStringLiteral("linux-64"), QStringLiteral("linux-64"));
-    {
-        int idx = ui->reportedOsComboBox->findData(ss->get_reported_os().trimmed());
-        ui->reportedOsComboBox->setCurrentIndex(idx < 0 ? 0 : idx);
-    }
-
     type = loglevel_tab(ss->get_log_level());
     if (type != -1) {
         ui->loglevelBox->setCurrentIndex(type);
@@ -367,7 +356,6 @@ void EditDialog::on_buttonBox_accepted()
     ss->set_interface_name(ui->interfaceNameEdit->text());
     ss->set_vpnc_script_filename(ui->vpncScriptEdit->text());
     ss->set_split_dns_domains(ui->splitDnsDomainsEdit->text());
-    ss->set_reported_os(ui->reportedOsComboBox->currentData().toString());
 
     type = ui->loglevelBox->currentIndex();
     if (type == -1) {

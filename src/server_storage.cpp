@@ -252,7 +252,6 @@ int StoredServer::load(QString& name)
     m_interface_name.truncate(OC_IFNAME_MAX_LENGTH);
 #endif
     m_vpnc_script_filename = settings.value("vpnc-script").toString();
-    m_reported_os = settings.value("reported-os").toString();
     m_split_dns_domains = settings.value("split-dns-domains").toString();
 
     m_log_level = settings.value("log-level", -1).toInt();
@@ -315,7 +314,6 @@ int StoredServer::save()
 
     settings.setValue("interface-name", m_interface_name);
     settings.setValue("vpnc-script", m_vpnc_script_filename);
-    settings.setValue("reported-os", m_reported_os);
     settings.setValue("split-dns-domains", m_split_dns_domains);
     if (m_log_level == -1)
         settings.remove("log-level");
@@ -539,16 +537,6 @@ const QString& StoredServer::get_vpnc_script_filename() const
 void StoredServer::set_vpnc_script_filename(const QString& vpnc_script_filename)
 {
     this->m_vpnc_script_filename = vpnc_script_filename;
-}
-
-const QString& StoredServer::get_reported_os() const
-{
-    return this->m_reported_os;
-}
-
-void StoredServer::set_reported_os(const QString& reported_os)
-{
-    this->m_reported_os = reported_os;
 }
 
 const QString& StoredServer::get_split_dns_domains() const

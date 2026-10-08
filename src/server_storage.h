@@ -106,9 +106,6 @@ public:
     const QString& get_vpnc_script_filename() const;
     void set_vpnc_script_filename(const QString& vpnc_script_filename);
 
-    const QString& get_reported_os() const;
-    void set_reported_os(const QString& reported_os);
-
     const QString& get_split_dns_domains() const;
     void set_split_dns_domains(const QString& domains);
 
@@ -168,7 +165,6 @@ private:
     KeyPair m_client;
     QString m_interface_name;
     QString m_vpnc_script_filename;
-    QString m_reported_os;
     QString m_split_dns_domains;
     int m_log_level;
     int m_icon_type;

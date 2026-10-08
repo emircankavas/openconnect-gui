@@ -573,26 +573,22 @@ int VpnInfo::connect()
     // openconnect only accepts a fixed set of reported OS names:
     //   "linux", "linux-64", "win", "mac-intel", "android", "apple-ios"
     // (see openconnect_set_reported_os, library.c).
-    // The reported OS is configurable per profile: some gateways apply a
-    // different dynamic access / authentication policy per platform, so a
-    // Linux or Windows client may need to report another OS.
-    // Q_OS_OSX is a clang-only deprecated synonym and is not defined on the
-    // Linux/GCC branch, which is why the old code fell through here.
-    QString reportedOs = this->ss->get_reported_os().trimmed();
-    if (reportedOs.isEmpty()) {
+    // Q_OS_OSX is a clang-only deprecated synonym of Q_OS_MACOS and is NOT
+    // defined on the Linux/GCC branch, so the old code fell through to the
+    // #error below on a native Linux build. The previous version also passed
+    // a dangling pointer (QString::toStdString().c_str() into a temporary).
 #ifdef Q_OS_WIN
-        reportedOs = QStringLiteral("win");
+    const char* osName = "win";
 #elif defined(Q_OS_MACOS)
-        reportedOs = QStringLiteral("mac-intel");
+    const char* osName = "mac-intel";
 #elif defined(Q_OS_LINUX)
-        reportedOs = (sizeof(void*) > 4) ? QStringLiteral("linux-64") : QStringLiteral("linux");
+    const char* osName = (sizeof(void*) > 4) ? "linux-64" : "linux";
 #elif defined(Q_OS_FREEBSD)
-        reportedOs = (sizeof(void*) > 4) ? QStringLiteral("freebsd-64") : QStringLiteral("freebsd");
+    const char* osName = (sizeof(void*) > 4) ? "freebsd-64" : "freebsd";
 #else
 #error Define OS string of other platforms...
 #endif
-    }
-    openconnect_set_reported_os(vpninfo, reportedOs.toUtf8().constData());
+    openconnect_set_reported_os(vpninfo, osName);
 
     ret = openconnect_obtain_cookie(vpninfo);
     if (ret != 0) {
