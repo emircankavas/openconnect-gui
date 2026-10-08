@@ -1,14 +1,47 @@
 set(CMAKE_VERBOSE_MAKEFILE ON)
 
+configure_file(
+    config.h.in
+    config.h
+    @ONLY
+)
+
+# ---------------------------------------------------------------------------
+# ocg-core: connection/business logic, independent of any GUI toolkit.
+# Both the Qt Widgets application and the headless ocg-cli link against it.
+# ---------------------------------------------------------------------------
+add_library(ocg-core STATIC
+    cert.cpp
+    cryptdata.cpp
+    gtdb.cpp
+    key.cpp
+    keypair.cpp
+    keyprompt.cpp
+    logger.cpp
+    server_storage.cpp
+    vpninfo.cpp
+    AdPasswordChecker.cpp
+)
+
+target_include_directories(ocg-core PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_BINARY_DIR}
+)
+
+target_link_libraries(ocg-core PUBLIC
+    spdlog::spdlog
+    Qt6::Core
+)
+
 set_property(SOURCE ${PROJECT_NAME}.cpp PROPERTY SKIP_AUTOGEN ON)
 set_property(SOURCE timestamp.cpp PROPERTY SKIP_AUTOGEN ON)
 
+# ---------------------------------------------------------------------------
+# openconnect-gui: the Qt Widgets application
+# ---------------------------------------------------------------------------
 set(${PROJECT_NAME}_SRCS
     openconnect-gui.qrc
-    cert.cpp
     common.h
-    config.h.in
-    cryptdata.cpp
     dialog/MyCertMsgBox.cpp
     dialog/MyInputDialog.cpp
     dialog/MyMsgBox.cpp
@@ -24,20 +57,11 @@ set(${PROJECT_NAME}_SRCS
     dialog/ProfileCard.cpp
     dialog/mainwindow.cpp
     dialog/mainwindow.ui
-    gtdb.cpp
-    key.cpp
-    keypair.cpp
     main.cpp
-    server_storage.cpp
 
     timestamp.cpp
 
-    vpninfo.cpp
-
-    logger.cpp
-
     FileLogger.cpp
-    AdPasswordChecker.cpp
     OcSettings.h
 )
 
@@ -46,12 +70,6 @@ set_source_files_properties(
     timestamp.cpp
     PROPERTIES
         GENERATED true
-)
-
-configure_file(
-    config.h.in
-    config.h
-    @ONLY
 )
 
 if(MINGW)
@@ -123,12 +141,12 @@ if(SIGN_EXE STREQUAL "true")
 endif()
 
 if(WIN32 AND NOT CMAKE_CROSSCOMPILING)
-    add_dependencies(${PROJECT_NAME}
+    add_dependencies(ocg-core
         openconnect-devel-${openconnect-TAG}
         openconnect-${openconnect-TAG}
     )
 
-    target_link_libraries (${PROJECT_NAME}
+    target_link_libraries (ocg-core PUBLIC
         # 3rd party dependencies
         openconnect::gmp
         openconnect::gnutls
@@ -140,7 +158,7 @@ if(WIN32 AND NOT CMAKE_CROSSCOMPILING)
         openconnect::xml2
     )
 else()
-    target_link_libraries (${PROJECT_NAME}
+    target_link_libraries (ocg-core PUBLIC
         ${OPENCONNECT_LIBRARIES}
         ${GNUTLS_LIBRARY}
     )
@@ -168,7 +186,8 @@ endif()
 
 # common stuff to link...
 target_link_libraries (${PROJECT_NAME}
-    spdlog::spdlog
+    ocg-core
+
     qt-solutions::qtsingleapplication
 
     Qt6::Core
@@ -178,23 +197,78 @@ target_link_libraries (${PROJECT_NAME}
     Qt6::StateMachine
 )
 
+# The bundled QtSingleApplication is an ExternalProject fetched at build time.
+# Its imported target carries a DEPENDS property, but that does not create a
+# build-order edge in every CMake/ninja version, so a parallel build can try to
+# compile main.cpp (which includes <QtSingleApplication>) before the header is
+# installed. Make the dependency explicit.
+add_dependencies(${PROJECT_NAME} qt-solutions-${qt-solutions-TAG})
+
 if(UNIX)
-    target_link_libraries(${PROJECT_NAME}
+    target_link_libraries(ocg-core PUBLIC
         Threads::Threads
     )
     if(APPLE)
-        target_link_libraries (${PROJECT_NAME}
+        target_link_libraries(ocg-core PUBLIC
             ${SECURITY_LIBRARY}
         )
     endif()
 endif()
 
-# install executable
-install(TARGETS ${PROJECT_NAME}
-    RUNTIME DESTINATION . COMPONENT App
-    BUNDLE DESTINATION . COMPONENT App
-    LIBRARY DESTINATION . COMPONENT App
+if(WIN32)
+    # ioctlsocket (used by vpninfo) lives in ws2_32; provide it to both the GUI
+    # and the headless CLI through the core library.
+    target_link_libraries(ocg-core PUBLIC ws2_32)
+endif()
+
+# ---------------------------------------------------------------------------
+# ocg-cli: headless console front-end (Qt6::Core only, no QtWidgets)
+# ---------------------------------------------------------------------------
+add_executable(ocg-cli
+    cli/main.cpp
+    cli/ConsoleUi.cpp
 )
+
+target_link_libraries(ocg-cli
+    ocg-core
+    Qt6::Core
+)
+
+# config.h is (re)written by the git_revision target at build time
+add_dependencies(ocg-cli git_revision)
+
+# install executable
+if(UNIX AND NOT APPLE)
+    include(GNUInstallDirs)
+    install(TARGETS ${PROJECT_NAME} ocg-cli
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT App
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT App
+    )
+
+    # Bundled vpnc-script (carries the split-DNS handling). Installed system-wide
+    # so the app finds it at DEFAULT_VPNC_SCRIPT (/usr/share/openconnect-gui).
+    install(PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/Resources/vpnc-script
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/openconnect-gui
+        COMPONENT App
+    )
+
+    # Desktop entry + icon so the app appears in the menu.
+    install(FILES ${CMAKE_SOURCE_DIR}/packaging/${PROJECT_NAME}.desktop
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/applications
+        COMPONENT App
+    )
+    install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/Resources/mono_lock.png
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/256x256/apps
+        RENAME ${PROJECT_NAME}.png
+        COMPONENT App
+    )
+else()
+    install(TARGETS ${PROJECT_NAME} ocg-cli
+        RUNTIME DESTINATION . COMPONENT App
+        BUNDLE DESTINATION . COMPONENT App
+        LIBRARY DESTINATION . COMPONENT App
+    )
+endif()
 
 # fixup the bundle
 get_target_property(QT_LIBRARY_DIR Qt6::Core LOCATION)
@@ -271,11 +345,16 @@ if(MINGW)
     )
 endif()
 
-install(CODE "
-    include(BundleUtilities)
-    if(APPLE)
-        set(BU_CHMOD_BUNDLE_ITEMS on)
-    endif()
-    fixup_bundle(\"${APPS}\" \"${additionalLib}\" \"${libSearchDirs}\")
-    " DESTINATION . COMPONENT App
-)
+# Qt runtime (platform plugin, TLS backend, styles) is only bundled into the
+# app dir for MinGW/Windows and macOS. On Linux the dependencies come from the
+# distro packages declared as .deb Depends, so there is nothing to fix up.
+if(MINGW OR APPLE)
+    install(CODE "
+        include(BundleUtilities)
+        if(APPLE)
+            set(BU_CHMOD_BUNDLE_ITEMS on)
+        endif()
+        fixup_bundle(\"${APPS}\" \"${additionalLib}\" \"${libSearchDirs}\")
+        " DESTINATION . COMPONENT App
+    )
+endif()

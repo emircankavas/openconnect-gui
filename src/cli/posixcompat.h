@@ -1,9 +1,9 @@
 /*
- * Copyright (C) 2014 Red Hat
+ * Small POSIX/Windows compatibility shim for the CLI (ocg-*).
  *
  * This file is part of openconnect-gui.
  *
- * openconnect-gui is free software: you can redistribute it and/or modify
+ * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 2 of the License, or
  * (at your option) any later version.
@@ -19,26 +19,21 @@
 
 #pragma once
 
-#include "cert.h"
-#include "key.h"
-
-class KeyPair {
-public:
-    KeyPair();
-    ~KeyPair();
-
-    /* functions return zero on success */
-    int import_pfx(const QString& File);
-    int import_cert(const QString& File);
-    int import_key(const QString& File);
-
-    int cert_export(QByteArray& data);
-    int key_export(QByteArray& data);
-
-    bool is_complete() const;
-
-    QString last_err;
-
-    Key key;
-    Cert cert;
-};
+#ifdef _WIN32
+#include <io.h>
+#include <process.h>
+#define ocg_read _read
+#define ocg_write _write
+#define ocg_close _close
+#define ocg_getpid _getpid
+#define OCG_STDIN_FILENO 0
+#define OCG_STDOUT_FILENO 1
+#else
+#include <unistd.h>
+#define ocg_read ::read
+#define ocg_write ::write
+#define ocg_close ::close
+#define ocg_getpid ::getpid
+#define OCG_STDIN_FILENO STDIN_FILENO
+#define OCG_STDOUT_FILENO STDOUT_FILENO
+#endif

@@ -26,6 +26,15 @@
 
 #include "FileLogger.h"
 #include "logger.h"
+#include "keyprompt.h"
+
+// The GUI installs a Qt dialog for encrypted-key passphrases; ocg-core (used
+// by the CLI too) must not depend on QtWidgets.
+#include "dialog/MyInputDialog.h"
+
+// POSIX signal handling (SIGPIPE) needs an explicit include; it used to come
+// in transitively on Windows through the winsock/iphlpapi headers.
+#include <csignal>
 
 extern "C" {
 #include <gnutls/pkcs11.h>
@@ -155,26 +164,9 @@ int pin_callback(void* userdata, int attempt, const char* token_url,
     const char* token_label, unsigned flags, char* pin,
     size_t pin_max)
 {
-    QString type = QObject::tr("user");
-    if (flags & GNUTLS_PIN_SO) {
-        type = QObject::tr("security officer");
-    }
-
-    QString outtext = QObject::tr("Please enter the %1 PIN for %2.").arg(type).arg(token_label);
-    if (flags & GNUTLS_PKCS11_PIN_FINAL_TRY) {
-        outtext += QObject::tr(" This is the FINAL try!");
-    }
-    if (flags & GNUTLS_PKCS11_PIN_COUNT_LOW) {
-        outtext += QObject::tr(" Only few tries before token lock!");
-    }
-
     MainWindow* w = (MainWindow*)userdata;
-    MyInputDialog dialog(w, QLatin1String(token_url), outtext, QLineEdit::Password);
-    dialog.show();
-
-    QString text;
-    bool ok = dialog.result(text);
-    if (ok == false) {
+    QString text = w->pinPrompt(QLatin1String(token_url), QLatin1String(token_label), flags);
+    if (text.isNull()) {
         return -1;
     }
 
@@ -266,6 +258,13 @@ int main(int argc, char* argv[])
     const QString profileName{ parser.value(QLatin1String("server")) };
     MainWindow mainWindow(nullptr, haveTray, profileName);
     app.setActivationWindow(&mainWindow);
+
+    // Encrypted key / PKCS#12 passphrase prompt for the GUI.
+    set_key_password_prompt([&mainWindow](const QString& title, const QString& label, QString& out) {
+        MyInputDialog dialog(&mainWindow, title, label, QLineEdit::Password);
+        dialog.show();
+        return dialog.result(out);
+    });
 #if defined(Q_OS_MACOS)
     setupMacDockHandler(&mainWindow);
     app.installEventFilter(new MacAppEventFilter(&mainWindow, &app));

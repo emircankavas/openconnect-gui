@@ -37,8 +37,6 @@ public:
     int import_pem(const QByteArray& data);
     void set(const gnutls_x509_privkey_t privkey);
 
-    void set_window(QWidget* w);
-
     int data_export(QByteArray& data);
     int tmpfile_export(QString& File);
 
@@ -53,6 +51,5 @@ private:
     gnutls_x509_privkey_t privkey;
     QTemporaryFile tmpfile;
     QString url;
-    QWidget* w;
     bool imported;
 };

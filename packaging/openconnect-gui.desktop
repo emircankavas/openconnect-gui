@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=OpenConnect VPN
+GenericName=VPN client
+Comment=OpenConnect VPN graphical client
+Exec=openconnect-gui
+Icon=openconnect-gui
+Terminal=false
+StartupNotify=true
+Categories=Network;Security;
+Keywords=vpn;openconnect;anyconnect;cisco;fortinet;globalprotect;

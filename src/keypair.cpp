@@ -19,14 +19,13 @@
 
 #include "keypair.h"
 #include "common.h"
-#include <QInputDialog>
+#include "keyprompt.h"
 #include <QString>
 extern "C" {
 #include <gnutls/pkcs12.h>
 }
 
 KeyPair::KeyPair()
-    : w(nullptr)
 {
 }
 
@@ -34,7 +33,7 @@ KeyPair::~KeyPair()
 {
 }
 
-static int load_pkcs12_file(QWidget* w,
+static int load_pkcs12_file(
     Key& key,
     Cert& cert,
     QString File,
@@ -47,10 +46,9 @@ static int load_pkcs12_file(QWidget* w,
     gnutls_x509_crt_t* xcert;
     unsigned int xcert_size;
 
-    bool ok = false; // TODO
-    char* p = nullptr; // TODO
+    char* p = nullptr;
 
-    if (w == nullptr || is_url(File)) {
+    if (is_url(File)) {
         return -1;
     }
 
@@ -84,15 +82,8 @@ static int load_pkcs12_file(QWidget* w,
         goto fail;
     }
 
-    //    bool ok = false;
-    pass = QInputDialog::getText(w,
-        QLatin1String("This file requires a password"),
-        QLatin1String("Please enter your password"),
-        QLineEdit::Password,
-        QString(),
-        &ok);
-
-    if (ok == false) {
+    if (!ask_key_password(QLatin1String("This file requires a password"),
+            QLatin1String("Please enter your password"), pass)) {
         goto fail;
     }
 
@@ -134,7 +125,7 @@ cleanup:
 
 int KeyPair::import_pfx(const QString& File)
 {
-    return load_pkcs12_file(this->w, this->key, this->cert, File, this->last_err);
+    return load_pkcs12_file(this->key, this->cert, File, this->last_err);
 }
 
 int KeyPair::import_cert(const QString& File)
@@ -155,12 +146,6 @@ int KeyPair::import_key(const QString& File)
         return -1;
     }
     return 0;
-}
-
-void KeyPair::set_window(QWidget* w)
-{
-    this->w = w;
-    key.set_window(w);
 }
 
 int KeyPair::cert_export(QByteArray& data)

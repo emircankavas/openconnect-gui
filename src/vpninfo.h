@@ -22,13 +22,14 @@
 #include <QString>
 #include <QUrl>
 #include "common.h"
+#include "vpnui.h"
 
 class MainWindow;
 class StoredServer;
 
 class VpnInfo {
 public:
-    VpnInfo(QString name, StoredServer* ss, MainWindow* m);
+    VpnInfo(QString name, StoredServer* ss, VpnUi* ui);
     ~VpnInfo();
 
     void setUrl(const QUrl& url);
@@ -45,9 +46,13 @@ public:
     QString get_profile_name() const;
     void set_profile_name(const QString& name);
 
+    // Application-wide default log level, used when the profile does not set
+    // one (-1). The GUI reads it from its settings; the CLI from --log-level.
+    void set_default_log_level(int level) { default_log_level = level; }
+
     QString last_err;
     QUrl mUrl;
-    MainWindow* m;
+    VpnUi* m;
     StoredServer* ss;
     struct openconnect_info* vpninfo;
     unsigned int authgroup_set;
@@ -61,4 +66,5 @@ public:
 private:
     SOCKET cmd_fd;
     QString m_profile_name;
+    int default_log_level = PRG_INFO;
 };

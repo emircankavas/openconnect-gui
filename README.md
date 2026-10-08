@@ -17,6 +17,7 @@ This project is an enhanced fork of the official [OpenConnect GUI](https://gui.o
 - **Wi-Fi DNS Preservation:** Prevents VPN connections from overwriting the physical Wi-Fi/Ethernet interface's DHCP DNS servers via legacy `networksetup` overrides.
 - **Dynamic SupplementalMatchDomains:** Leverages macOS native `scutil` `SupplementalMatchDomains` per `utun` interface. Queries matching the VPN's domains are routed to the VPN DNS, while local Wi-Fi and general internet queries remain untouched.
 - **Guaranteed Cleanup:** Automatic removal of `scutil` resolver dictionaries upon profile disconnection and startup sweeping of any orphaned tunnel resolvers from unexpected system restarts.
+- **Linux:** the same per-profile split-DNS is applied through `systemd-resolved` (`resolvectl`, routing-only `~domain` entries) when available, or through `/etc/resolv.conf` otherwise.
 
 ### 3. Customizable Split-DNS Domains per Profile
 - **GUI Configuration:** Directly define comma- or space-separated match domains (e.g., `company.com, company.com.tr`) under **Edit Profile -> Split DNS Domains**.
@@ -32,6 +33,7 @@ This project is an enhanced fork of the official [OpenConnect GUI](https://gui.o
 ## Supported Platforms
 - macOS 12.0 and newer (Apple Silicon ARM64 & Intel x86_64)
 - Microsoft Windows 10 and newer
+- Linux (x86_64) — packaged as a `.deb` (Qt 6 + libopenconnect from the distro)
 
 ---
 
@@ -50,6 +52,33 @@ cmake --build build --config Release
 # Run with required network privileges:
 sudo ./build/bin/OpenConnect-GUI.app/Contents/MacOS/OpenConnect-GUI
 ```
+
+---
+
+## Building from Source (Linux)
+
+### Prerequisites (Debian/Ubuntu)
+```bash
+sudo apt install build-essential cmake ninja-build pkg-config \
+    qt6-base-dev qt6-base-dev-tools qt6-scxml-dev \
+    libopenconnect-dev libgnutls28-dev libspdlog-dev libfmt-dev
+```
+
+### Build, test and package
+```bash
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel "$(nproc)"
+
+# The app needs root to configure routes/DNS:
+sudo ./build/bin/openconnect-gui
+
+# Build the .deb:
+cd build && cpack -G DEB -C Release
+```
+
+The `.deb` installs the binary, the bundled `vpnc-script` (which carries the
+split-DNS handling) and a desktop entry. Dependencies are resolved from the
+distro packages.
 
 ---
 

@@ -19,14 +19,11 @@
 
 #include "vpninfo.h"
 #include "config.h"
-#include "dialog/MyCertMsgBox.h"
-#include "dialog/MyInputDialog.h"
-#include "dialog/MyMsgBox.h"
-#include "dialog/mainwindow.h"
 #include "gtdb.h"
 #include "logger.h"
 #include "server_storage.h"
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QHash>
 #include <QProcess>
@@ -51,7 +48,7 @@ static void stats_vfn(void* privdata, const struct oc_stats* stats)
         dtls = QLatin1String(cipher);
     }
 
-    vpn->m->updateStats(vpn->get_profile_name(), stats, dtls);
+    vpn->m->onStats(vpn->get_profile_name(), stats, dtls);
 }
 
 // privdata is set by the caller to be of type VpnInfo
@@ -121,14 +118,11 @@ static int process_auth_form(void* privdata, struct oc_auth_form* form)
             openconnect_set_option_value(&select_opt->form,
                 vpn->ss->get_groupname().toUtf8().data());
         } else {
-            {
-                MyInputDialog dialog(vpn->m,
-                    QLatin1String("Auth group selection"),
-                    QLatin1String(select_opt->form.label),
-                    ditems);
-                dialog.show();
-                ok = dialog.result(text);
-            }
+            ok = vpn->m->promptSelect(QLatin1String("Auth group selection"),
+                QLatin1String(select_opt->form.label),
+                ditems,
+                QString::fromUtf8(form->banner), QString::fromUtf8(form->message),
+                text);
 
             if (!ok)
                 goto fail;
@@ -170,15 +164,11 @@ static int process_auth_form(void* privdata, struct oc_auth_form* form)
                 items << select_opt->choices[i]->label;
             }
 
-            {
-                MyInputDialog dialog(vpn->m,
-                    QLatin1String("Form selection"),
-                    QString::fromUtf8(opt->label), items);
-
-                dialog.set_banner(QString::fromUtf8(form->banner), QString::fromUtf8(form->message));
-                dialog.show();
-                ok = dialog.result(text);
-            }
+            ok = vpn->m->promptSelect(QLatin1String("Form selection"),
+                QString::fromUtf8(opt->label),
+                items,
+                QString::fromUtf8(form->banner), QString::fromUtf8(form->message),
+                text);
 
             if (!ok)
                 goto fail;
@@ -202,14 +192,10 @@ static int process_auth_form(void* privdata, struct oc_auth_form* form)
             }
 
             do {
-                MyInputDialog dialog(vpn->m,
-                    QLatin1String("Username input"),
-                    QString::fromUtf8(opt->label),
-                    QLineEdit::Normal);
-
-                dialog.set_banner(QString::fromUtf8(form->banner), QString::fromUtf8(form->message));
-                dialog.show();
-                ok = dialog.result(text);
+                ok = vpn->m->promptText(QLatin1String("Username input"),
+                    QString::fromUtf8(opt->label), false,
+                    QString::fromUtf8(form->banner), QString::fromUtf8(form->message),
+                    text);
 
                 if (!ok)
                     goto fail;
@@ -235,14 +221,10 @@ static int process_auth_form(void* privdata, struct oc_auth_form* form)
                 continue;
             }
 
-            MyInputDialog dialog(vpn->m,
-                QLatin1String("Password input"),
-                QString::fromUtf8(opt->label),
-                QLineEdit::Password);
-
-            dialog.set_banner(QString::fromUtf8(form->banner), QString::fromUtf8(form->message));
-            dialog.show();
-            ok = dialog.result(text);
+            ok = vpn->m->promptText(QLatin1String("Password input"),
+                QString::fromUtf8(opt->label), true,
+                QString::fromUtf8(form->banner), QString::fromUtf8(form->message),
+                text);
 
             if (!ok)
                 goto fail;
@@ -313,18 +295,13 @@ static int validate_peer_cert(void* privdata, const char* reason)
         Logger::instance().addMessage(QObject::tr("peer is unknown"));
 
         QString hostInfoStr = QObject::tr("Host: ") + vpn->ss->get_server_gateway() + QObject::tr("\n") + hash;
-        MyCertMsgBox msgBox(
-            vpn->m,
-            QObject::tr("This server's certificate cannot be validated with a trusted authority.<br><br>"
-                        "<b>There is no guarantee that the server is the computer you think it is.</b>\n\n"
-                        "If the information provided below is valid and you use another way to validate it, "
-                        "hit 'Accurate information' to remember it and to carry on connecting.\n"
-                        "If you cannot validate this information, hit <b>Cancel</b> to abandon the connection."),
-            hostInfoStr,
-            QObject::tr("Accurate information"),
-            dstr);
-        msgBox.show();
-        if (msgBox.result() == false) {
+        if (!vpn->m->confirmPeerCert(
+                QObject::tr("This server's certificate cannot be validated with a trusted authority.<br><br>"
+                            "<b>There is no guarantee that the server is the computer you think it is.</b>\n\n"
+                            "If the information provided below is valid and you use another way to validate it, "
+                            "hit 'Accurate information' to remember it and to carry on connecting.\n"
+                            "If you cannot validate this information, hit <b>Cancel</b> to abandon the connection."),
+                hostInfoStr, dstr, QObject::tr("Accurate information"))) {
             return -1;
         }
 
@@ -332,16 +309,13 @@ static int validate_peer_cert(void* privdata, const char* reason)
     } else if (ret == GNUTLS_E_CERTIFICATE_KEY_MISMATCH) {
         Logger::instance().addMessage(QObject::tr("peer's key has changed!"));
 
-        MyCertMsgBox msgBox(vpn->m,
-            QObject::tr("This peer is known and associated with a different key."
-                        "It may be that the server has multiple keys "
-                        "or you are (or were in the past) under attack. "
-                        "Do you want to proceed?"),
-            QObject::tr("Host: %1\n%2").arg(vpn->ss->get_server_gateway()).arg(hash),
-            QObject::tr("The key was changed by the administrator"),
-            dstr);
-        msgBox.show();
-        if (msgBox.result() == false) {
+        if (!vpn->m->confirmPeerCert(
+                QObject::tr("This peer is known and associated with a different key."
+                            "It may be that the server has multiple keys "
+                            "or you are (or were in the past) under attack. "
+                            "Do you want to proceed?"),
+                QObject::tr("Host: %1\n%2").arg(vpn->ss->get_server_gateway()).arg(hash),
+                dstr, QObject::tr("The key was changed by the administrator"))) {
             return -1;
         }
 
@@ -406,6 +380,25 @@ static void setup_tun_vfn(void* privdata)
         vpncScriptFullPath = native_path(QCoreApplication::applicationDirPath()
                                          + "/" + QString(DEFAULT_VPNC_SCRIPT));
 
+#ifndef _WIN32
+    // On Linux the script we ship may be absent (e.g. a distro build that
+    // only installed the binary). Fall back to locations provided by the
+    // distribution so the connection can still come up.
+    if (!QFile::exists(vpncScriptFullPath)) {
+        const QStringList fallbacks{
+            QStringLiteral("/usr/share/openconnect-gui/vpnc-script"),
+            QStringLiteral("/usr/share/vpnc-scripts/vpnc-script"),
+            QStringLiteral("/etc/vpnc/vpnc-script"),
+        };
+        for (const QString& candidate : fallbacks) {
+            if (QFile::exists(candidate)) {
+                vpncScriptFullPath = native_path(candidate);
+                break;
+            }
+        }
+    }
+#endif
+
     if (!vpn->ss->get_interface_name().isEmpty())
         interface_name = vpn->ss->get_interface_name().toUtf8();
 #ifdef _WIN32
@@ -459,7 +452,7 @@ static inline int set_sock_block(int fd)
 #endif
 }
 
-VpnInfo::VpnInfo(QString name, StoredServer* ss, MainWindow* m)
+VpnInfo::VpnInfo(QString name, StoredServer* ss, VpnUi* ui)
 {
     this->vpninfo = openconnect_vpninfo_new(name.toUtf8().data(), validate_peer_cert, nullptr,
         process_auth_form, progress_vfn, this);
@@ -472,7 +465,7 @@ VpnInfo::VpnInfo(QString name, StoredServer* ss, MainWindow* m)
 
     if (loglevel == -1) {
         //-1 means use application default
-        loglevel = m->get_log_level();
+        loglevel = default_log_level;
     }
 
     openconnect_set_loglevel(vpninfo, loglevel);
@@ -486,7 +479,7 @@ VpnInfo::VpnInfo(QString name, StoredServer* ss, MainWindow* m)
 
     this->last_err = "";
     this->ss = ss;
-    this->m = m;
+    this->m = ui;
     this->m_profile_name = ss ? ss->get_label() : QString();
     authgroup_set = 0;
     password_set = 0;
@@ -568,18 +561,25 @@ int VpnInfo::connect()
         openconnect_set_cafile(vpninfo, ca_file.toUtf8().data());
     }
 
-#ifdef Q_OS_WIN32
-    const QString osName{ "win" };
-#elif defined Q_OS_OSX
-    const QString osName{ "mac-intel" };
-#elif defined Q_OS_LINUX
-    const QString osName = QString("linux%1").arg(QSysInfo::buildCpuArchitecture() == "i386" ? "" : "-64").toStdString().c_str();
-#elif defined Q_OS_FREEBSD
-    const QString osName = QString("freebsd%1").arg(QSysInfo::buildCpuArchitecture() == "i386" ? "" : "-64").toStdString().c_str();
+    // openconnect only accepts a fixed set of reported OS names:
+    //   "linux", "linux-64", "win", "mac-intel", "android", "apple-ios"
+    // (see openconnect_set_reported_os, library.c).
+    // Q_OS_OSX is a clang-only deprecated synonym of Q_OS_MACOS and is NOT
+    // defined on the Linux/GCC branch, so the old code fell through to the
+    // #error below on a native Linux build. The previous version also passed
+    // a dangling pointer (QString::toStdString().c_str() into a temporary).
+#ifdef Q_OS_WIN
+    const char* osName = "win";
+#elif defined(Q_OS_MACOS)
+    const char* osName = "mac-intel";
+#elif defined(Q_OS_LINUX)
+    const char* osName = (sizeof(void*) > 4) ? "linux-64" : "linux";
+#elif defined(Q_OS_FREEBSD)
+    const char* osName = (sizeof(void*) > 4) ? "freebsd-64" : "freebsd";
 #else
 #error Define OS string of other platforms...
 #endif
-    openconnect_set_reported_os(vpninfo, osName.toStdString().c_str());
+    openconnect_set_reported_os(vpninfo, osName);
 
     ret = openconnect_obtain_cookie(vpninfo);
     if (ret != 0) {
@@ -728,14 +728,9 @@ void VpnInfo::logVpncScriptOutput()
         }
 
         if (ss->get_batch_mode() != true && bannerMessage.isEmpty() == false) {
-            // TODO: msgbox title; e.g. Accept/Continue + Disconnect on buttons
-            MyMsgBox msgBox(this->m,
-                bannerMessage,
-                QString(""),
-                QString("Accept"));
-            msgBox.show();
-            if (msgBox.result() == false) {
-                this->m->on_disconnectClicked();
+            if (!this->m->confirmBanner(bannerMessage)) {
+                // The user declined the server banner: abort the session.
+                this->m->requestDisconnect(get_profile_name());
             }
         }
     } else {

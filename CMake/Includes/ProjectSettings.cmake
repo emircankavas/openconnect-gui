@@ -7,7 +7,9 @@ if(MINGW)
 elseif(APPLE)
     set(DEFAULT_VPNC_SCRIPT "../Resources/vpnc-script")
 else()
-    set(DEFAULT_VPNC_SCRIPT "/etc/vpnc/vpnc-script")
+    # Prefer the script we ship with the package; vpninfo falls back to the
+    # distro-provided locations (/etc/vpnc/vpnc-script, ...) when it is absent.
+    set(DEFAULT_VPNC_SCRIPT "/usr/share/openconnect-gui/vpnc-script")
 endif()
 option(PROJ_PKCS11 "Enable PKCS11" ON)
 

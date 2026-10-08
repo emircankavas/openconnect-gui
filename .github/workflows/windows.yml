@@ -1,0 +1,147 @@
+name: Windows Build & Release (MinGW/NSIS)
+
+on:
+  push:
+    branches: [ main, linux-support ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Create a release with this tag (e.g. v1.6.3). Leave empty to only build.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+env:
+  MSYSTEM: MINGW64
+
+jobs:
+  build-windows:
+    name: Build Windows installer (MinGW64)
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          # Keep the runner's coherent snapshot: force-updating pulls a
+          # bleeding-edge mingw-w64 whose headers break openconnect's compat.c
+          # (sec_api/stdlib_s.h). jq (the only stale package) is optional now.
+          update: false
+          path-type: inherit
+
+      - name: Fetch and build dependencies (openconnect, wintun, ...)
+        shell: cmd
+        run: c:\msys64\msys2_shell.cmd -defterm -no-start -mingw64 -where . -c "./contrib/build_deps_mingw@msys2.sh"
+
+      - name: Build the application and package (NSIS)
+        shell: cmd
+        env:
+          BUILD_TYPE: Release
+          BUILD_DIR: build
+          TARGET: package
+        run: c:\msys64\msys2_shell.cmd -defterm -no-start -mingw64 -use-full-path -where . -c "./contrib/build_mingw@msys2.sh"
+
+      - name: Locate installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "== build dir =="
+          ls -la build || true
+          # Prefer the versioned NSIS installer in the build root
+          # (openconnect-gui-<ver>-oc-<ocver>-win64.exe); fall back to any .exe.
+          INST="$(find build -maxdepth 1 -name 'openconnect-gui-*.exe' -type f | head -n1)"
+          if [ -z "$INST" ]; then
+            INST="$(find build -maxdepth 2 -name '*.exe' -type f | head -n1)"
+          fi
+          if [ -z "$INST" ]; then
+            echo "::error::No installer was produced"
+            find . -name '*.exe' 2>/dev/null | head -n50 || true
+            exit 1
+          fi
+          echo "Installer: $INST"
+          cp "$INST" "$GITHUB_WORKSPACE/"
+          echo "ARTIFACT_FILE=$(basename "$INST")" >> "$GITHUB_ENV"
+
+      - name: Smoke check the binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The installer is an NSIS .exe; also verify the raw executables exist
+          find build -maxdepth 2 -name 'openconnect-gui.exe' -o -name 'ocg-cli.exe' | head
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenConnect-GUI-windows
+          path: ${{ env.ARTIFACT_FILE }}
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Publish release (Windows)
+    needs: build-windows
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download built artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: OpenConnect-GUI-windows
+          path: dist
+
+      - name: Resolve release tag
+        id: rel
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ -n "${{ inputs.release_tag }}" ]; then
+            TAG="${{ inputs.release_tag }}"
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            TAG="${GITHUB_REF_NAME}"
+          else
+            TAG="continuous"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Resolved: tag=$TAG"
+
+      - name: Create / update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.rel.outputs.tag }}"
+          ASSET="$(ls dist/*.exe | head -n1)"
+          echo "Asset: $ASSET"
+
+          if [ "$TAG" = "continuous" ]; then
+            gh release view "$TAG" >/dev/null 2>&1 || \
+              gh release create "$TAG" --target "$GITHUB_SHA" \
+                --title "Continuous build" --notes "Automated Windows + Linux builds." --prerelease
+            gh release upload "$TAG" "$ASSET" --clobber
+          elif gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$ASSET" --clobber
+          else
+            gh release create "$TAG" "$ASSET" --target "$GITHUB_SHA" \
+              --title "$TAG" --notes "OpenConnect-GUI $TAG"
+          fi
+
+          gh release view "$TAG" --json tagName,name,isPrerelease,assets

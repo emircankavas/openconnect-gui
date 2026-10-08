@@ -23,7 +23,6 @@ if(WIN32 AND MINGW)
     else()
         set(CPACK_GENERATOR "NSIS")
     endif()
-
     set(CPACK_NSIS_INSTALLED_ICON_NAME "${PROJECT_NAME}.exe")
     set(CPACK_NSIS_DISPLAY_NAME "${CPACK_PACKAGE_INSTALL_DIRECTORY}")
     set(CPACK_NSIS_HELP_LINK "https://gitlab.com/openconnect/openconnect-gui/-/wikis/FAQ")
@@ -84,6 +83,31 @@ if(WIN32 AND MINGW)
     #set(CPACK_SOURCE_PACKAGE_FILE_NAME )
     set(CPACK_SOURCE_GENERATOR "7Z")
     set(CPACK_SOURCE_IGNORE_FILES "build-release/;/\.git/;\.swp$;\.gitignore$")
+elseif(UNIX AND NOT APPLE)
+    # Native Linux package. The app links against the distro Qt6/openconnect,
+    # so dependencies are expressed as package Depends instead of bundling.
+    set(CPACK_GENERATOR "DEB")
+
+    # derive the distro Qt6/openconnect versions for the Depends list
+    if(NOT DEFINED QT6_DEBVER)
+        if(Qt6Core_VERSION)
+            string(REGEX MATCH "^[0-9]+\\.[0-9]+" QT6_DEBVER "${Qt6Core_VERSION}")
+        else()
+            set(QT6_DEBVER "6")
+        endif()
+    endif()
+
+    set(CPACK_DEBIAN_PACKAGE_NAME "openconnect-gui")
+    set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
+    set(CPACK_DEBIAN_PACKAGE_MAINTAINER "OpenConnect-GUI Team <${PRODUCT_NAME_COMPANY_DOMAIN}>")
+    set(CPACK_DEBIAN_PACKAGE_SECTION "net")
+    set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
+    set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS
+        "libqt6core6 | libqt6core6t64, libqt6gui6, libqt6widgets6, libqt6network6, libqt6statemachine6, libopenconnect5, libgnutls30 | libgnutls30t64")
+    # runtime tools the connection needs on Linux
+    set(CPACK_DEBIAN_PACKAGE_RECOMMENDS
+        "systemd-resolved | resolvconf, iproute2, ldap-utils")
 else()
     set(CPACK_GENERATOR "DragNDrop")
 

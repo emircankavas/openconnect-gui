@@ -55,6 +55,10 @@ if [ -z "$QT6" ];then
         mingw-w64-x86_64-nsis \
         mingw-w64-x86_64-qt6-base \
         mingw-w64-x86_64-qt6-scxml
+
+        # jq is only used by contrib/sign.sh (release signing), best-effort.
+        pacman --needed --noconfirm -S mingw-w64-x86_64-jq || \
+        echo "warning: mingw-w64-x86_64-jq not available; skipping (needed only for signing)"
 fi
 
 echo "======================================================================="
