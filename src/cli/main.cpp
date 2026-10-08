@@ -206,6 +206,14 @@ static int runConnection(const Options& opt, int readyFd)
     int ret = 0;
     do {
         ret = vpn->connect();
+        if (ret != 0 && vpn->server_needs_client_cert) {
+            err() << "error: the server requires a client certificate and this "
+                     "profile has none configured (set one via the GUI or the "
+                     "profile's certificate fields)\n";
+            err().flush();
+            delete vpn;
+            return 5;
+        }
         if (ret != 0 && pass_was_empty && retries-- > 0) {
             ss->clear_password();
             ss->clear_groupname();

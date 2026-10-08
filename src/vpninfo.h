@@ -51,6 +51,11 @@ public:
     void set_default_log_level(int level) { default_log_level = level; }
 
     QString last_err;
+
+    // Set when the server asked for an SSL client certificate and none was
+    // configured. The caller uses it to avoid the misleading "wrong password"
+    // retry loop and to report the real cause instead.
+    bool server_needs_client_cert = false;
     QUrl mUrl;
     VpnUi* m;
     StoredServer* ss;

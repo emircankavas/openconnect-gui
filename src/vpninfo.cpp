@@ -73,6 +73,15 @@ static void progress_vfn(void* privdata, int level, const char* fmt, ...)
     if (buf[len - 1] == '\n')
         buf[len - 1] = 0;
 
+    // Detect the server demanding an SSL client certificate that we do not
+    // have. libopenconnect prints this before the connection fails; remember
+    // it so the caller can report the real reason instead of looping on the
+    // password prompt.
+    if (vpn && strstr(buf, "requested SSL client certificate") != nullptr
+        && strstr(buf, "none was configured") != nullptr) {
+        vpn->server_needs_client_cert = true;
+    }
+
     if (vpn && !vpn->get_profile_name().isEmpty()) {
         Logger::instance().addMessage(QString("[%1] %2").arg(vpn->get_profile_name(), QString::fromUtf8(buf)));
     } else {
@@ -685,6 +694,7 @@ void VpnInfo::reset_vpn()
     password_set = 0;
     authgroup_set = 0;
     form_attempt = 0;
+    server_needs_client_cert = false;
 }
 
 bool VpnInfo::get_minimize() const

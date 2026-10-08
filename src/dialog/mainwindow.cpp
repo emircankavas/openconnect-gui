@@ -1303,6 +1303,19 @@ static void main_loop(VpnInfo* vpninfo, MainWindow* m, QString profileName)
         retry = false;
         ret = vpninfo->connect();
         if (ret != 0) {
+            // The server demanded a client certificate we do not have. Retrying
+            // with another password cannot help; report the real cause.
+            if (vpninfo->server_needs_client_cert) {
+                QMessageBox::warning(m,
+                    qApp->applicationName(),
+                    QObject::tr("The server requires a client certificate, but this "
+                                "profile has none configured.\n\n"
+                                "Open Edit Profile and select a User Certificate and "
+                                "User Key (on Windows you can load one from the "
+                                "certificate store), then try again."));
+                goto fail;
+            }
+
             if (retries-- <= 0)
                 goto fail;
 
