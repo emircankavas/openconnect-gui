@@ -178,6 +178,13 @@ target_link_libraries (${PROJECT_NAME}
     Qt6::StateMachine
 )
 
+# The bundled QtSingleApplication is an ExternalProject fetched at build time.
+# Its imported target carries a DEPENDS property, but that does not create a
+# build-order edge in every CMake/ninja version, so a parallel build can try to
+# compile main.cpp (which includes <QtSingleApplication>) before the header is
+# installed. Make the dependency explicit.
+add_dependencies(${PROJECT_NAME} qt-solutions-${qt-solutions-TAG})
+
 if(UNIX)
     target_link_libraries(${PROJECT_NAME}
         Threads::Threads

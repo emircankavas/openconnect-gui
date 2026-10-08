@@ -27,6 +27,10 @@
 #include "FileLogger.h"
 #include "logger.h"
 
+// POSIX signal handling (SIGPIPE) needs an explicit include; it used to come
+// in transitively on Windows through the winsock/iphlpapi headers.
+#include <csignal>
+
 extern "C" {
 #include <gnutls/pkcs11.h>
 }

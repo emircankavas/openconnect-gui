@@ -568,18 +568,25 @@ int VpnInfo::connect()
         openconnect_set_cafile(vpninfo, ca_file.toUtf8().data());
     }
 
-#ifdef Q_OS_WIN32
-    const QString osName{ "win" };
-#elif defined Q_OS_OSX
-    const QString osName{ "mac-intel" };
-#elif defined Q_OS_LINUX
-    const QString osName = QString("linux%1").arg(QSysInfo::buildCpuArchitecture() == "i386" ? "" : "-64").toStdString().c_str();
-#elif defined Q_OS_FREEBSD
-    const QString osName = QString("freebsd%1").arg(QSysInfo::buildCpuArchitecture() == "i386" ? "" : "-64").toStdString().c_str();
+    // openconnect only accepts a fixed set of reported OS names:
+    //   "linux", "linux-64", "win", "mac-intel", "android", "apple-ios"
+    // (see openconnect_set_reported_os, library.c).
+    // Q_OS_OSX is a clang-only deprecated synonym of Q_OS_MACOS and is NOT
+    // defined on the Linux/GCC branch, so the old code fell through to the
+    // #error below on a native Linux build. The previous version also passed
+    // a dangling pointer (QString::toStdString().c_str() into a temporary).
+#ifdef Q_OS_WIN
+    const char* osName = "win";
+#elif defined(Q_OS_MACOS)
+    const char* osName = "mac-intel";
+#elif defined(Q_OS_LINUX)
+    const char* osName = (sizeof(void*) > 4) ? "linux-64" : "linux";
+#elif defined(Q_OS_FREEBSD)
+    const char* osName = (sizeof(void*) > 4) ? "freebsd-64" : "freebsd";
 #else
 #error Define OS string of other platforms...
 #endif
-    openconnect_set_reported_os(vpninfo, osName.toStdString().c_str());
+    openconnect_set_reported_os(vpninfo, osName);
 
     ret = openconnect_obtain_cookie(vpninfo);
     if (ret != 0) {
