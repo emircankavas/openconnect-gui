@@ -31,7 +31,7 @@ echo "Starting under $MSYSTEM build environment ($ROOT_DIR)..."
 if [ "$1" == "--head" ]; then
     export OC_TAG=master
 else
-    export OC_TAG=v9.12
+    export OC_TAG=v9.21
 fi
 
 echo "======================================================================="

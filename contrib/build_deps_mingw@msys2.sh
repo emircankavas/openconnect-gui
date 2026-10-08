@@ -41,7 +41,10 @@ echo "Starting under $MSYSTEM build environment ($ROOT_DIR)..."
 if [ "$1" == "--head" ]; then
     export OC_TAG=master
 else
-    export OC_TAG=v9.12
+    # 9.20 fixed Cisco AnyConnect STRAP channel bindings with TLSv1.3 (#659),
+    # which newer ASA/FTD gateways require; 9.12 was rejected with
+    # "Got inappropriate HTTP CONNECT response: HTTP/1.1 401 Unauthorized".
+    export OC_TAG=v9.21
 fi
 
 echo "OpenConnect: $OC_TAG"

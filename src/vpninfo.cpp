@@ -411,8 +411,8 @@ static void setup_tun_vfn(void* privdata)
     if (!vpn->ss->get_interface_name().isEmpty())
         interface_name = vpn->ss->get_interface_name().toUtf8();
 #ifdef _WIN32
-#if ! (OPENCONNECT_API_VERSION_MAJOR == 5 && OPENCONNECT_API_VERSION_MINOR == 9)
-#error "This probably has been fixed in openconnect in API version >= 5.9 and this workaround is not required anymore."
+#if !OPENCONNECT_CHECK_VER(5, 9)
+#error "This workaround needs openconnect API >= 5.9."
 #endif
     else {
         //generate a "unique" interface name if no interface name was specified.
